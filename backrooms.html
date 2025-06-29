@@ -41,12 +41,13 @@ const wallMat = new THREE.MeshLambertMaterial({ map: wallTex });
 const floorMat = new THREE.MeshLambertMaterial({ color: 0x666644 });
 const ceilMat = new THREE.MeshLambertMaterial({ color: 0xffffcc });
 
-// Floor & ceiling
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), floorMat);
+// Floor & ceiling (make them big enough to cover all movement)
+const BIG = 1000;  // <-- increased from 100 to 1000
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(BIG, BIG), floorMat);
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
 
-const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), ceilMat);
+const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(BIG, BIG), ceilMat);
 ceiling.rotation.x = Math.PI / 2;
 ceiling.position.y = 3;
 scene.add(ceiling);
@@ -58,11 +59,21 @@ const CHUNK_SIZE = 40;
 const WALL_HEIGHT = 3;
 const FADE_DURATION = 1; // seconds
 
-function createWall(x, z, width, height, rot = 0) {
-  const geo = new THREE.PlaneGeometry(width, height);
+function createWall(x, z, length, height, isVertical) {
+  // Thickness of the walls
+  const thickness = 0.3;
+
+  // Use BoxGeometry instead of PlaneGeometry for thickness
+  let width = isVertical ? thickness : length;
+  let depth = isVertical ? length : thickness;
+
+  const geo = new THREE.BoxGeometry(width, height, depth);
+
+  // Texture repeat adjustment for BoxGeometry
   const tex = wallTex.clone();
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(width / 2, height / 2);
+  // Repeat texture along length and height (adjust as needed)
+  tex.repeat.set(length / 2, height / 2);
 
   const mat = new THREE.MeshLambertMaterial({
     map: tex,
@@ -73,7 +84,6 @@ function createWall(x, z, width, height, rot = 0) {
 
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, height / 2, z);
-  mesh.rotation.y = rot;
   mesh.userData = { createdAt: performance.now() / 1000 };
   scene.add(mesh);
 
@@ -85,6 +95,7 @@ function createWall(x, z, width, height, rot = 0) {
 }
 
 // Generate maze chunk around chunk coordinates
+// Updated generateWallsAround for higher density and using new createWall signature
 function generateWallsAround(x, z) {
   const cx = Math.floor(x / CHUNK_SIZE);
   const cz = Math.floor(z / CHUNK_SIZE);
@@ -94,19 +105,22 @@ function generateWallsAround(x, z) {
 
   const centerX = cx * CHUNK_SIZE;
   const centerZ = cz * CHUNK_SIZE;
-  const step = CHUNK_SIZE / 4;
+  // Make step smaller to add more walls
+  const step = CHUNK_SIZE / 8;  // was CHUNK_SIZE/4
 
   for (let dx = -CHUNK_SIZE/2; dx <= CHUNK_SIZE/2; dx += step) {
     for (let dz = -CHUNK_SIZE/2; dz <= CHUNK_SIZE/2; dz += step) {
-      if (Math.random() < 0.8) {
+      // Increase probability to add even more walls
+      if (Math.random() < 0.95) {
         const length = step;
         const isVertical = Math.random() < 0.5;
-        const rot = isVertical ? 0 : Math.PI / 2;
-        createWall(centerX + dx, centerZ + dz, isVertical ? 1 : length, WALL_HEIGHT, rot);
+        createWall(centerX + dx, centerZ + dz, length, WALL_HEIGHT, isVertical);
       }
     }
   }
 }
+
+
 
 // Collision check only on fully faded-in walls
 function checkCollision(pos) {
@@ -206,4 +220,4 @@ animate();
 
 </script>
 </body>
-</html>w
+</html>
