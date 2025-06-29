@@ -34,6 +34,11 @@ const floorTex = loader.load('moist_carpet.webp');
 floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
 const FLOOR_SIZE = 1000; // match BIG
 
+const ceilTex = createCeilingTexture();
+//floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
+const CEIL_SIZE = 1000; // match BIG
+ceilTex.repeat.set(175, 175);
+
 floorTex.repeat.set(FLOOR_SIZE / 10, FLOOR_SIZE / 10);
 
 // Materials
@@ -41,7 +46,7 @@ const wallMat = new THREE.MeshLambertMaterial({ map: wallTex });
 const floorMat = new THREE.MeshLambertMaterial({ map: floorTex });
 //const wallMat = new THREE.MeshLambertMaterial({ color: 0xccbb88 });
 //const floorMat = new THREE.MeshLambertMaterial({ color: 0x666644 });
-const ceilMat = new THREE.MeshLambertMaterial({ color: 0xffffcc });
+const ceilMat = new THREE.MeshLambertMaterial({ map: ceilTex });
 
 // Floor & ceiling (make them big enough to cover all movement)
 const BIG = 1000;  // <-- increased from 100 to 1000
@@ -218,6 +223,51 @@ function animate() {
 
   renderer.render(scene, camera);
 }
+
+function createCeilingTexture() {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Background: yellowed old ceiling tile
+  ctx.fillStyle = '#fefae0'; // aged off-white
+  ctx.fillRect(0, 0, size, size);
+
+  // Subtle noise / grime
+  for (let i = 0; i < 3000; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const alpha = Math.random() * 0.2;
+    const gray = 200 + Math.random() * 55;
+    ctx.fillStyle = `rgba(${gray}, ${gray}, ${gray}, ${alpha})`;
+    ctx.fillRect(x, y, 1, 1);
+  }
+
+  // Grid lines (tiles)
+  ctx.strokeStyle = '#aaa'; // dirty metal divider
+  ctx.lineWidth = 2;
+  const tileSize = size / 4;
+  for (let i = 0; i <= size; i += tileSize) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, size);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(0, i);
+    ctx.lineTo(size, i);
+    ctx.stroke();
+  }
+
+  // Return as a THREE.Texture
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(10, 10); // how many tiles repeat across surface
+  return texture;
+}
+
 animate();
 
 </script>
