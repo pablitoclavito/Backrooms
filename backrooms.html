@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html>
 <body>
 <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
@@ -5,17 +6,16 @@
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x333300, 0.045);
 
-const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
 camera.position.set(0, 1.6, 5);
 
-const renderer = new THREE.WebGLRenderer({ antialias:true });
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
 
-// Base ambient light (very soft)
 scene.add(new THREE.AmbientLight(0x403010, 0.25));
 
-// Flashlight (SpotLight attached to camera)
+// Flashlight
 const flashlight = new THREE.SpotLight(0xfffadd, 1.5, 20, Math.PI / 8, 0.4, 1.2);
 flashlight.position.set(0, 0, 0);
 flashlight.target.position.set(0, 0, -1);
@@ -23,33 +23,25 @@ camera.add(flashlight);
 camera.add(flashlight.target);
 scene.add(camera);
 
-// Texture loader
 const loader = new THREE.TextureLoader();
-
 const wallTex = loader.load('backrooms_wallpaper.jpg');
 wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
 wallTex.repeat.set(20, 2);
 
 const floorTex = loader.load('moist_carpet.webp');
 floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
-const FLOOR_SIZE = 1000; // match BIG
+floorTex.repeat.set(100, 100);
 
 const ceilTex = createCeilingTexture();
-//floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
-const CEIL_SIZE = 1000; // match BIG
 ceilTex.repeat.set(175, 175);
-
-floorTex.repeat.set(FLOOR_SIZE / 10, FLOOR_SIZE / 10);
 
 // Materials
 const wallMat = new THREE.MeshLambertMaterial({ map: wallTex });
 const floorMat = new THREE.MeshLambertMaterial({ map: floorTex });
-//const wallMat = new THREE.MeshLambertMaterial({ color: 0xccbb88 });
-//const floorMat = new THREE.MeshLambertMaterial({ color: 0x666644 });
 const ceilMat = new THREE.MeshLambertMaterial({ map: ceilTex });
 
-// Floor & ceiling (make them big enough to cover all movement)
-const BIG = 1000;  // <-- increased from 100 to 1000
+// Floor & Ceiling
+const BIG = 1000;
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(BIG, BIG), floorMat);
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
@@ -59,27 +51,22 @@ ceiling.rotation.x = Math.PI / 2;
 ceiling.position.y = 3;
 scene.add(ceiling);
 
-// Walls and maze generation variables
-const walls = [];
-const wallChunks = new Set();
+// Maze Management
 const CHUNK_SIZE = 40;
 const WALL_HEIGHT = 3;
 const FADE_DURATION = 1; // seconds
+const UNLOAD_DISTANCE = 90; // distance threshold for wall unload
 
-function createWall(x, z, length, height, isVertical) {
-  // Thickness of the walls
+const activeChunks = new Map();
+
+function createWall(x, z, length, height, isVertical, chunkKey) {
   const thickness = 0.3;
-
-  // Use BoxGeometry instead of PlaneGeometry for thickness
   let width = isVertical ? thickness : length;
   let depth = isVertical ? length : thickness;
 
   const geo = new THREE.BoxGeometry(width, height, depth);
-
-  // Texture repeat adjustment for BoxGeometry
   const tex = wallTex.clone();
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  // Repeat texture along length and height (adjust as needed)
   tex.repeat.set(length / 2, height / 2);
 
   const mat = new THREE.MeshLambertMaterial({
@@ -91,83 +78,136 @@ function createWall(x, z, length, height, isVertical) {
 
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, height / 2, z);
-  mesh.userData = { createdAt: performance.now() / 1000 };
-  scene.add(mesh);
+  mesh.userData = {
+    createdAt: performance.now() / 1000,
+    fadingOut: false,
+    chunkKey
+  };
 
-  walls.push({
-    box: new THREE.Box3().setFromObject(mesh),
-    mesh: mesh,
-    boxFinalized: false
-  });
+  // Create bounding box for collision
+  mesh.userData.box = new THREE.Box3().setFromObject(mesh);
+
+  scene.add(mesh);
+  if (!activeChunks.has(chunkKey)) activeChunks.set(chunkKey, []);
+  activeChunks.get(chunkKey).push(mesh);
 }
 
-// Generate maze chunk around chunk coordinates
-// Updated generateWallsAround for higher density and using new createWall signature
-function generateWallsAround(x, z) {
-  const cx = Math.floor(x / CHUNK_SIZE);
-  const cz = Math.floor(z / CHUNK_SIZE);
+function generateChunk(cx, cz) {
+  const key = `${cx},${cz}`;
+  if (activeChunks.has(key)) return;
 
-  // Generate walls in a 3x3 chunk grid (surrounding current chunk)
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dz = -1; dz <= 1; dz++) {
-      const key = `${cx + dx},${cz + dz}`;
-      if (wallChunks.has(key)) continue;
-      wallChunks.add(key);
+  const centerX = cx * CHUNK_SIZE;
+  const centerZ = cz * CHUNK_SIZE;
+  const step = CHUNK_SIZE / 8;
 
-      const centerX = (cx + dx) * CHUNK_SIZE;
-      const centerZ = (cz + dz) * CHUNK_SIZE;
-      const step = CHUNK_SIZE / 8;  // higher density
-
-      for (let offsetX = -CHUNK_SIZE / 2; offsetX <= CHUNK_SIZE / 2; offsetX += step) {
-        for (let offsetZ = -CHUNK_SIZE / 2; offsetZ <= CHUNK_SIZE / 2; offsetZ += step) {
-          if (Math.random() < 0.95) {
-            const length = step;
-            const isVertical = Math.random() < 0.5;
-            createWall(centerX + offsetX, centerZ + offsetZ, length, WALL_HEIGHT, isVertical);
-          }
-        }
+  for (let dx = -CHUNK_SIZE / 2; dx <= CHUNK_SIZE / 2; dx += step) {
+    for (let dz = -CHUNK_SIZE / 2; dz <= CHUNK_SIZE / 2; dz += step) {
+      if (Math.random() < 0.95) {
+        const length = step;
+        const isVertical = Math.random() < 0.5;
+        createWall(centerX + dx, centerZ + dz, length, WALL_HEIGHT, isVertical, key);
       }
     }
   }
 }
 
+function manageChunks() {
+  const cx = Math.floor(camera.position.x / CHUNK_SIZE);
+  const cz = Math.floor(camera.position.z / CHUNK_SIZE);
 
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      generateChunk(cx + dx, cz + dz);
+    }
+  }
 
-// Collision check only on fully faded-in walls
+  const now = performance.now() / 1000;
+  for (const [key, meshes] of activeChunks) {
+    const [chunkX, chunkZ] = key.split(',').map(Number);
+    const dx = chunkX * CHUNK_SIZE - camera.position.x;
+    const dz = chunkZ * CHUNK_SIZE - camera.position.z;
+    const distSq = dx * dx + dz * dz;
+
+    if (distSq > UNLOAD_DISTANCE * UNLOAD_DISTANCE) {
+      for (const mesh of meshes) {
+        if (!mesh.userData.fadingOut) {
+          mesh.userData.fadingOut = true;
+          mesh.userData.fadeStart = now;
+        }
+      }
+    } else {
+      for (const mesh of meshes) {
+        if (mesh.userData.fadingOut) {
+          mesh.userData.fadingOut = false;
+          mesh.userData.createdAt = now;
+        }
+      }
+    }
+  }
+
+  for (const [key, meshes] of activeChunks) {
+    for (let i = meshes.length - 1; i >= 0; i--) {
+      const mesh = meshes[i];
+      const t = now - (mesh.userData.fadingOut ? mesh.userData.fadeStart : mesh.userData.createdAt);
+      const alpha = mesh.userData.fadingOut
+        ? 1 - Math.min(t / FADE_DURATION, 1)
+        : Math.min(t / FADE_DURATION, 1);
+
+      mesh.material.opacity = alpha;
+
+      if (mesh.userData.fadingOut && alpha <= 0) {
+        scene.remove(mesh);
+        meshes.splice(i, 1);
+      } else {
+        // Update bounding box if still visible
+        mesh.userData.box.setFromObject(mesh);
+      }
+    }
+
+    if (meshes.length === 0) activeChunks.delete(key);
+  }
+}
+
+// Collision detection: checks if camera collides with any fully visible wall
 function checkCollision(pos) {
-  const r = 0.3;
+  const r = 0.3; // collision radius
+  // Approximate camera bounding box (around feet level)
   const box = new THREE.Box3(
     new THREE.Vector3(pos.x - r, pos.y - 1.6, pos.z - r),
     new THREE.Vector3(pos.x + r, pos.y - 1.0, pos.z + r)
   );
-  return walls.some(w => w.boxFinalized && w.box.intersectsBox(box));
+
+  for (const meshes of activeChunks.values()) {
+    for (const mesh of meshes) {
+      if (!mesh.userData.fadingOut && mesh.userData.box.intersectsBox(box)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
-// Controls setup
+// Movement and controls
 let yaw = 0, pitch = 0, mouseDown = false;
-const pitchLimit = Math.PI / 2 * 0.9;
 const sensitivity = 0.003;
+const pitchLimit = Math.PI / 2 * 0.9;
 const moveFlags = { up: false, down: false, left: false, right: false };
 
 window.addEventListener('keydown', e => {
-  if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
-    e.preventDefault(); // Prevents browser scrolling or default behavior
-  }
+  if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) e.preventDefault();
   if (e.code === 'KeyW') moveFlags.down = true;
   if (e.code === 'KeyS') moveFlags.up = true;
   if (e.code === 'KeyA') moveFlags.right = true;
   if (e.code === 'KeyD') moveFlags.left = true;
 });
-
 window.addEventListener('keyup', e => {
   if (e.code === 'KeyW') moveFlags.down = false;
   if (e.code === 'KeyS') moveFlags.up = false;
   if (e.code === 'KeyA') moveFlags.right = false;
   if (e.code === 'KeyD') moveFlags.left = false;
 });
-
-window.addEventListener('mousedown', () => { mouseDown = true; });
-window.addEventListener('mouseup', () => { mouseDown = false; });
+window.addEventListener('mousedown', () => mouseDown = true);
+window.addEventListener('mouseup', () => mouseDown = false);
 window.addEventListener('mousemove', e => {
   if (!mouseDown) return;
   yaw -= e.movementX * sensitivity;
@@ -175,29 +215,46 @@ window.addEventListener('mousemove', e => {
   pitch = Math.min(Math.max(pitch, -pitchLimit), pitchLimit);
 });
 
-const clock = new THREE.Clock();
+function createCeilingTexture() {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
 
+  ctx.fillStyle = '#fefae0';
+  ctx.fillRect(0, 0, size, size);
+
+  for (let i = 0; i < 3000; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const alpha = Math.random() * 0.2;
+    const gray = 200 + Math.random() * 55;
+    ctx.fillStyle = `rgba(${gray}, ${gray}, ${gray}, ${alpha})`;
+    ctx.fillRect(x, y, 1, 1);
+  }
+
+  ctx.strokeStyle = '#aaa';
+  ctx.lineWidth = 2;
+  const tileSize = size / 4;
+  for (let i = 0; i <= size; i += tileSize) {
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(size, i); ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(10, 10);
+  return texture;
+}
+
+const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
   const dt = clock.getDelta();
   const speed = 3;
 
-  // Generate walls around current chunk based on camera position
-  generateWallsAround(camera.position.x, camera.position.z);
+  manageChunks();
 
-  // Fade in newly created walls
-  const now = performance.now() / 1000;
-  walls.forEach(w => {
-    const elapsed = now - w.mesh.userData.createdAt;
-    const alpha = Math.min(elapsed / FADE_DURATION, 1);
-    w.mesh.material.opacity = alpha;
-    if (alpha >= 1 && !w.boxFinalized) {
-      w.box.copy(new THREE.Box3().setFromObject(w.mesh));
-      w.boxFinalized = true;
-    }
-  });
-
-  // Movement vectors
   const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
   const right = new THREE.Vector3(Math.sin(yaw - Math.PI / 2), 0, Math.cos(yaw - Math.PI / 2));
   const move = new THREE.Vector3();
@@ -213,67 +270,28 @@ function animate() {
     if (!checkCollision(newPos)) {
       camera.position.copy(newPos);
     } else {
-      const tryX = camera.position.clone().add(new THREE.Vector3(move.x, 0, 0));
-      if (!checkCollision(tryX)) camera.position.copy(tryX);
-      const tryZ = camera.position.clone().add(new THREE.Vector3(0, 0, move.z));
-      if (!checkCollision(tryZ)) camera.position.copy(tryZ);
+      // Try moving only on X or Z axis separately for sliding effect
+      const tryX = camera.position.clone();
+      tryX.x += move.x;
+      if (!checkCollision(tryX)) {
+        camera.position.x = tryX.x;
+      }
+      const tryZ = camera.position.clone();
+      tryZ.z += move.z;
+      if (!checkCollision(tryZ)) {
+        camera.position.z = tryZ.z;
+      }
     }
   }
 
-  // Update camera rotation
-  camera.rotation.order = "YXZ";
+  camera.rotation.order = 'YXZ';
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
 
   renderer.render(scene, camera);
 }
 
-function createCeilingTexture() {
-  const size = 512;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  // Background: yellowed old ceiling tile
-  ctx.fillStyle = '#fefae0'; // aged off-white
-  ctx.fillRect(0, 0, size, size);
-
-  // Subtle noise / grime
-  for (let i = 0; i < 3000; i++) {
-    const x = Math.random() * size;
-    const y = Math.random() * size;
-    const alpha = Math.random() * 0.2;
-    const gray = 200 + Math.random() * 55;
-    ctx.fillStyle = `rgba(${gray}, ${gray}, ${gray}, ${alpha})`;
-    ctx.fillRect(x, y, 1, 1);
-  }
-
-  // Grid lines (tiles)
-  ctx.strokeStyle = '#aaa'; // dirty metal divider
-  ctx.lineWidth = 2;
-  const tileSize = size / 4;
-  for (let i = 0; i <= size; i += tileSize) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i, size);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(0, i);
-    ctx.lineTo(size, i);
-    ctx.stroke();
-  }
-
-  // Return as a THREE.Texture
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(10, 10); // how many tiles repeat across surface
-  return texture;
-}
-
 animate();
-
 </script>
 </body>
 </html>
