@@ -247,6 +247,14 @@ function createCeilingTexture() {
   return texture;
 }
 
+const ambientAudio = new Audio('back-rooms-ambience-made-with-Voicemod.mp3'); // Put your ambient sound file here
+ambientAudio.loop = true;
+ambientAudio.volume = 1;
+ambientAudio.play().catch(e => {
+  console.log('Ambient audio playback blocked, will play on user interaction.', e);
+  window.addEventListener('mousedown', () => ambientAudio.play());
+});
+
 const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
