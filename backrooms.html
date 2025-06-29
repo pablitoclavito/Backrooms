@@ -32,13 +32,15 @@ wallTex.repeat.set(20, 2);
 
 const floorTex = loader.load('moist_carpet.webp');
 floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
-floorTex.repeat.set(10, 10);
+const FLOOR_SIZE = 1000; // match BIG
+
+floorTex.repeat.set(FLOOR_SIZE / 10, FLOOR_SIZE / 10);
 
 // Materials
 const wallMat = new THREE.MeshLambertMaterial({ map: wallTex });
-//const floorMat = new THREE.MeshLambertMaterial({ map: floorTex });
+const floorMat = new THREE.MeshLambertMaterial({ map: floorTex });
 //const wallMat = new THREE.MeshLambertMaterial({ color: 0xccbb88 });
-const floorMat = new THREE.MeshLambertMaterial({ color: 0x666644 });
+//const floorMat = new THREE.MeshLambertMaterial({ color: 0x666644 });
 const ceilMat = new THREE.MeshLambertMaterial({ color: 0xffffcc });
 
 // Floor & ceiling (make them big enough to cover all movement)
