@@ -106,22 +106,26 @@ function createWall(x, z, length, height, isVertical) {
 function generateWallsAround(x, z) {
   const cx = Math.floor(x / CHUNK_SIZE);
   const cz = Math.floor(z / CHUNK_SIZE);
-  const key = `${cx},${cz}`;
-  if (wallChunks.has(key)) return;
-  wallChunks.add(key);
 
-  const centerX = cx * CHUNK_SIZE;
-  const centerZ = cz * CHUNK_SIZE;
-  // Make step smaller to add more walls
-  const step = CHUNK_SIZE / 8;  // was CHUNK_SIZE/4
+  // Generate walls in a 3x3 chunk grid (surrounding current chunk)
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      const key = `${cx + dx},${cz + dz}`;
+      if (wallChunks.has(key)) continue;
+      wallChunks.add(key);
 
-  for (let dx = -CHUNK_SIZE/2; dx <= CHUNK_SIZE/2; dx += step) {
-    for (let dz = -CHUNK_SIZE/2; dz <= CHUNK_SIZE/2; dz += step) {
-      // Increase probability to add even more walls
-      if (Math.random() < 0.95) {
-        const length = step;
-        const isVertical = Math.random() < 0.5;
-        createWall(centerX + dx, centerZ + dz, length, WALL_HEIGHT, isVertical);
+      const centerX = (cx + dx) * CHUNK_SIZE;
+      const centerZ = (cz + dz) * CHUNK_SIZE;
+      const step = CHUNK_SIZE / 8;  // higher density
+
+      for (let offsetX = -CHUNK_SIZE / 2; offsetX <= CHUNK_SIZE / 2; offsetX += step) {
+        for (let offsetZ = -CHUNK_SIZE / 2; offsetZ <= CHUNK_SIZE / 2; offsetZ += step) {
+          if (Math.random() < 0.95) {
+            const length = step;
+            const isVertical = Math.random() < 0.5;
+            createWall(centerX + offsetX, centerZ + offsetZ, length, WALL_HEIGHT, isVertical);
+          }
+        }
       }
     }
   }
