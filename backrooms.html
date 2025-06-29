@@ -100,15 +100,15 @@ function generateChunk(cx, cz) {
   const centerZ = cz * CHUNK_SIZE;
   const step = CHUNK_SIZE / 8;
 
-  for (let dx = -CHUNK_SIZE / 2; dx <= CHUNK_SIZE / 2; dx += step) {
-    for (let dz = -CHUNK_SIZE / 2; dz <= CHUNK_SIZE / 2; dz += step) {
-      if (Math.random() < 0.95) {
-        const length = step;
-        const isVertical = Math.random() < 0.5;
-        createWall(centerX + dx, centerZ + dz, length, WALL_HEIGHT, isVertical, key);
+    for (let dx = -CHUNK_SIZE / 2; dx <= CHUNK_SIZE / 2; dx += step) {
+      for (let dz = -CHUNK_SIZE / 2; dz <= CHUNK_SIZE / 2; dz += step) {
+        if (Math.random() < 0.95) {
+          const length = step;
+          const isVertical = Math.random() < 0.5;
+          createWall(centerX + dx, centerZ + dz, length, WALL_HEIGHT, isVertical, key);
+        }
       }
     }
-  }
 }
 
 function manageChunks() {
@@ -116,10 +116,10 @@ function manageChunks() {
   const cz = Math.floor(camera.position.z / CHUNK_SIZE);
 
   for (let dx = -1; dx <= 1; dx++) {
-    for (let dz = -1; dz <= 1; dz++) {
-      generateChunk(cx + dx, cz + dz);
-    }
+  for (let dz = -1; dz <= 1; dz++) {
+    generateChunk(cx + dx, cz + dz);
   }
+}
 
   const now = performance.now() / 1000;
   for (const [key, meshes] of activeChunks) {
