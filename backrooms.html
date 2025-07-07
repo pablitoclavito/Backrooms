@@ -2,6 +2,24 @@
 <html>
 <body>
 
+<div id="defeatedScreen" style="
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.85);
+  color: white;
+  font-size: 48px;
+  font-family: sans-serif;
+  display: none;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  z-index: 20;
+">
+  <div>You were caught.</div>
+  <button id="restartBtn" style="margin-top: 20px; font-size: 24px;">Restart</button>
+</div>
+
   <div id="instructions" style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; color: white; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,0.75); font-family: sans-serif; font-size: 24px; z-index: 10; cursor: pointer;">
   Click to start
 </div>
@@ -19,6 +37,11 @@
 "></div>
 <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
 <script>
+
+  let defeated = false;
+
+  let monster;
+
   let firstFrame = true;
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x333300, 0.045);
@@ -207,6 +230,8 @@ function checkCollision(pos) {
   return false;
 }
 
+createMonster();
+
 // Movement and controls
 let yaw = 0, pitch = 0, mouseDown = false;
 const sensitivity = 0.003;
@@ -319,6 +344,78 @@ function onMouseMove(e) {
   pitch = Math.min(Math.max(pitch, -pitchLimit), pitchLimit);
 }
 
+function createMonster() {
+  const geo = new THREE.SphereGeometry(0.8, 16, 16); // or BoxGeometry for a blocky monster
+  const mat = new THREE.MeshLambertMaterial({ color: 0x000000 });
+  monster = new THREE.Mesh(geo, mat);
+
+  monster.position.y = 0.8; // Adjust for monster height
+  setMonsterRandomStart();
+  scene.add(monster);
+}
+
+function showDefeatedScreen() {
+  defeated = true;
+  ambientAudio.pause(); // Optional: stop sound
+  document.exitPointerLock?.(); // Exit mouse lock if active
+  document.getElementById('defeatedScreen').style.display = 'flex';
+}
+
+document.getElementById('restartBtn').addEventListener('click', () => {
+  location.reload(); // Full page reload to reset everything
+});
+
+function setMonsterRandomStart() {
+  const range = 30;
+  let x, z, pos;
+
+  do {
+    x = (Math.random() * 2 - 1) * range;
+    z = (Math.random() * 2 - 1) * range;
+    pos = new THREE.Vector3(x, monster.position.y, z);
+  } while (pos.distanceTo(camera.position) < 8 || checkCollision(pos));
+
+  monster.position.set(x, monster.position.y, z);
+}
+
+function maybeTeleportMonsterToPlayer() {
+  const maxDistance = 60; // too far = teleport
+  const minDistance = 10;
+  const desiredDistance = 20 + Math.random() * 10;
+  const maxAttempts = 50;
+
+  const distance = monster.position.distanceTo(camera.position);
+  if (distance < maxDistance) return; // don't teleport
+
+  for (let i = 0; i < maxAttempts; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const x = camera.position.x + Math.cos(angle) * desiredDistance;
+    const z = camera.position.z + Math.sin(angle) * desiredDistance;
+    const testPos = new THREE.Vector3(x, monster.position.y, z);
+
+    if (
+      testPos.distanceTo(camera.position) >= minDistance &&
+      !checkCollision(testPos)
+    ) {
+      monster.position.copy(testPos);
+      console.log("Monster teleported closer!");
+      return;
+
+      function maybeTeleportMonsterToPlayer() {
+  if (!monster) return; // prevent errors if monster isn't created
+  // ... rest of teleport code
+}
+
+    }
+  }
+
+  console.warn("Could not find valid teleport location for monster.");
+}
+
+if (!defeated) {
+  maybeTeleportMonsterToPlayer();
+}
+
 function animate() {
   requestAnimationFrame(animate);
   const dt = clock.getDelta();
@@ -371,6 +468,24 @@ function animate() {
   const pos = camera.position;
   document.getElementById('positionDisplay').textContent = 
   `x: ${pos.x.toFixed(2)}, y: ${pos.y.toFixed(2)}, z: ${pos.z.toFixed(2)}`;
+
+  if (monster) {
+  const direction = new THREE.Vector3().subVectors(camera.position, monster.position);
+  direction.y = 0; // keep on ground plane
+  const distance = direction.length();
+
+  if (distance > 0.5) {
+    direction.normalize();
+    const moveSpeed = 1.5 * dt; // monster speed
+    monster.position.addScaledVector(direction, moveSpeed);
+  }
+
+  // Collision check with player
+  if (distance < 0.75) {
+    showDefeatedScreen();
+  }
+}
+
 
   renderer.render(scene, camera);
 }
