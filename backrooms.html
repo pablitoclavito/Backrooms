@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <body>
-<!--something-->
+
 <div id="defeatedScreen" style="
   position: absolute;
   top: 0; left: 0;
@@ -43,6 +43,9 @@
   let monster;
 
   let firstFrame = true;
+
+  let walkTime = 0;
+
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x333300, 0.045);
 
@@ -438,28 +441,42 @@ function animate() {
   if (moveFlags.left) move.sub(right);
   if (moveFlags.right) move.add(right);
 
-  if (move.length() > 0) {
+if (move.length() > 0) {
     move.normalize().multiplyScalar(speed * dt);
     const newPos = camera.position.clone().add(move);
     if (!checkCollision(newPos)) {
       camera.position.copy(newPos);
-      console.log("new pos not ok");
     } else {
-      // Try moving only on X or Z axis separately for sliding effect
       const tryX = camera.position.clone();
       tryX.x += move.x;
-      if (!checkCollision(tryX)) {
-        camera.position.x = tryX.x;
-        console.log("x pos not ok");
-      }
+      if (!checkCollision(tryX)) camera.position.x = tryX.x;
       const tryZ = camera.position.clone();
       tryZ.z += move.z;
-      if (!checkCollision(tryZ)) {
-        camera.position.z = tryZ.z;
-        console.log("z pos not ok");
-      }
+      if (!checkCollision(tryZ)) camera.position.z = tryZ.z;
     }
-  }
+
+    // Increase walk time when moving
+    walkTime += dt;
+
+} else {
+    // Reset or dampen walk time when standing still
+    walkTime = Math.max(0, walkTime - dt * 0);
+}
+
+const bobAmplitude = 0.07     // Up/down amount
+const swayAmplitude = 0.06;    // Left/right amount
+const bobSpeed = 8;            // How fast the bobbing happens
+
+if (walkTime > 0) {
+  const bobOffset = Math.sin(walkTime * bobSpeed) * bobAmplitude;
+  const swayOffset = Math.sin(walkTime * bobSpeed * 0.5) * swayAmplitude;
+
+  camera.position.y = 1.6 + bobOffset;
+  camera.rotation.z = swayOffset * 0.3; // small tilt
+} else {
+  camera.position.y = 1.6;
+  camera.rotation.z = 0;
+}
 
   camera.rotation.order = 'YXZ';
   camera.rotation.y = yaw;
