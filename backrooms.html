@@ -35,6 +35,26 @@
   font-size: 14px;
   z-index: 100;
 "></div>
+
+<div id="loadingScreen" style="
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: #000;
+  color: white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  font-family: sans-serif;
+  z-index: 1000;
+">
+  <div style="font-size: 32px; margin-bottom: 20px;">Loading...</div>
+  <div style="width: 300px; height: 20px; background: rgba(255,255,255,0.2); border-radius: 10px; overflow: hidden;">
+    <div id="loadingBar" style="width: 0%; height: 100%; background: #fff;"></div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
 <script>
 
@@ -45,6 +65,12 @@
   let firstFrame = true;
 
   let walkTime = 0;
+
+  const loadingScreen = document.getElementById('loadingScreen');
+const loadingBar = document.getElementById('loadingBar');
+
+let loadingStartTime = performance.now();
+const loadingDuration = 4000;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x333300, 0.045);
@@ -65,6 +91,7 @@ flashlight.target.position.set(0, 0, -1);
 camera.add(flashlight);
 camera.add(flashlight.target);
 scene.add(camera);
+let flashlightOn = true;
 
 const loader = new THREE.TextureLoader();
 const wallTex = loader.load('backrooms_wallpaper.jpg');
@@ -341,6 +368,13 @@ document.addEventListener('pointerlockchange', () => {
   }
 });
 
+document.addEventListener('mousedown', (e) => {
+  if (e.button === 0) { // Left-click
+    flashlightOn = !flashlightOn;
+    flashlight.visible = flashlightOn;
+  }
+});
+
 function onMouseMove(e) {
   yaw -= e.movementX * sensitivity;
   pitch -= e.movementY * sensitivity;
@@ -421,6 +455,19 @@ if (!defeated) {
 
 function animate() {
   requestAnimationFrame(animate);
+
+  const now = performance.now();
+  const elapsed = now - loadingStartTime;
+
+  if (elapsed < loadingDuration) {
+    const progress = Math.min(elapsed / loadingDuration, 1);
+    loadingBar.style.width = `${progress * 100}%`;
+    return; // Stop animation until loading done
+  } else if (loadingScreen.style.display !== 'none') {
+    loadingScreen.style.display = 'none';
+  }
+
+
   const dt = clock.getDelta();
   const speed = 3;
 
@@ -463,8 +510,8 @@ if (move.length() > 0) {
     walkTime = Math.max(0, walkTime - dt * 0);
 }
 
-const bobAmplitude = 0.07     // Up/down amount
-const swayAmplitude = 0.06;    // Left/right amount
+const bobAmplitude = 0.08;     // Up/down amount
+const swayAmplitude = 0.05;    // Left/right amount
 const bobSpeed = 8;            // How fast the bobbing happens
 
 if (walkTime > 0) {
