@@ -55,6 +55,31 @@
   </div>
 </div>
 
+<div id="controlsScreen" style="
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 20px;
+  font-family: sans-serif;
+  border-radius: 8px;
+  z-index: 9999;
+  max-width: 300px;
+  text-align: center;
+  box-shadow: 0 0 10px #f0f5a9;
+">
+  <h2>Controls</h2>
+  <p><b>W</b> - Move Forward</p>
+  <p><b>S</b> - Move Backward</p>
+  <p><b>A</b> - Move Left</p>
+  <p><b>D</b> - Move Right</p>
+  <p><b>Left click</b> - Toggle flashlight on/off</p>
+  <!-- Add more controls as needed -->
+</div>
+
 <script type="module">
 
 import * as THREE from '../three';
@@ -65,14 +90,25 @@ import { EffectComposer } from '../three/examples/jsm/postprocessing/EffectCompo
 
   let defeated = false;
 
-  let monster;
-
   let firstFrame = true;
 
   let walkTime = 0;
 
+  let monster;
+
   const loadingScreen = document.getElementById('loadingScreen');
 const loadingBar = document.getElementById('loadingBar');
+
+const controlsScreen = document.getElementById('controlsScreen');
+let controlsScreenVisible = false;
+
+window.addEventListener('keydown', (event) => {
+  if (event.key.toLowerCase() === 'e') {
+    controlsScreenVisible = !controlsScreenVisible;
+    controlsScreen.style.display = controlsScreenVisible ? 'block' : 'none';
+    console.log('Controls screen visible:', controlsScreenVisible);
+  }
+});
 
 let loadingStartTime = performance.now();
 const loadingDuration = 4000;
@@ -88,9 +124,78 @@ renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const flashlightClickSound = new Audio('flashlight_click_sound.mp3');
-flashlightClickSound.volume = 0.5; // adjust as needed
+flashlightClickSound.volume = 0.9; // adjust as needed
 
 scene.add(new THREE.AmbientLight(0x403010, 0.25));
+
+function getAllWallBoxes() {
+  const boxes = [];
+  for (const meshes of activeChunks.values()) {
+    for (const mesh of meshes) {
+      if (mesh.userData.box) {
+        boxes.push(mesh.userData.box);
+      }
+    }
+  }
+  return boxes;
+}
+
+function isCollidingWithWalls(box, wallBoxes) {
+  for (const wallBox of wallBoxes) {
+    if (box.intersectsBox(wallBox)) return true;
+  }
+  return false;
+}
+
+// Create the loader
+const ModelLoader = new GLTFLoader();
+
+// Load the model
+ModelLoader.load(
+  '../bacteria_backrooms.glb', // Path relative to public/
+  (gltf) => {
+    const monster = gltf.scene;
+    monster.scale.set(0.4, 0.4, 0.4); // Optional scaling
+    monster.position.set(0, 0, 0); // Optional positioning
+    scene.add(monster);
+
+    monster.userData.box = new THREE.Box3().setFromObject(monster);
+
+    setTimeout(() => {
+    placeMonsterOutsideWalls(monster);
+  }, 100); // allow time for wall boxes to update
+
+  },
+  undefined,
+  (error) => {
+    console.error('Error loading GLB model:', error);
+  }
+);
+
+function placeMonsterOutsideWalls(monster) {
+  // Force chunk generation near the player
+  manageChunks();  // ensure walls exist to check against
+  const wallBoxes = getAllWallBoxes();
+
+  const maxTries = 100;
+  const spawnRadius = 30;
+
+  for (let i = 0; i < maxTries; i++) {
+    const x = camera.position.x + (Math.random() - 0.5) * spawnRadius * 2;
+    const z = camera.position.z + (Math.random() - 0.5) * spawnRadius * 2;
+    monster.position.set(x, 0, z);
+
+    // Make sure bounding box is calculated after monster is positioned
+    const box = new THREE.Box3().setFromObject(monster);
+
+    if (!isCollidingWithWalls(box, wallBoxes)) {
+      console.log("✅ Monster placed at safe position");
+      return;
+    }
+  }
+
+  console.warn("❌ Could not find safe spawn for monster after 100 tries");
+}
 
 // Flashlight
 const flashlight = new THREE.SpotLight(0xfffadd, 1.5, 20, Math.PI / 8, 0.4, 1.2);
@@ -268,8 +373,6 @@ function checkCollision(pos) {
   return false;
 }
 
-createMonster();
-
 // Movement and controls
 let yaw = 0, pitch = 0, mouseDown = false;
 const sensitivity = 0.003;
@@ -330,6 +433,91 @@ function createCeilingTexture() {
   return texture;
 }
 
+const monsterSpeed = 0.05; // units per frame, adjust as needed
+
+// Make sure monster has a bounding box:
+
+function moveMonsterTowardPlayer() {
+  const playerPos = camera.position;
+  const monsterPos = monster.position;
+
+  // Direction vector from monster to player
+  const dir = new THREE.Vector3().subVectors(playerPos, monsterPos);
+  dir.y = 0; // ignore vertical difference to keep on ground
+  const distance = dir.length();
+  if (distance < 0.1) return; // close enough, stop
+
+  dir.normalize();
+
+  // Attempted next position
+  const nextPos = monsterPos.clone().addScaledVector(dir, monsterSpeed);
+
+  // Update monster bounding box to new position
+  const monsterBox = monster.userData.box.clone();
+  const offset = new THREE.Vector3().subVectors(nextPos, monsterPos);
+  monsterBox.min.add(offset);
+  monsterBox.max.add(offset);
+
+  // Check collision with all wall boxes
+  const wallBoxes = getAllWallBoxes();
+  for (const wallBox of wallBoxes) {
+    if (monsterBox.intersectsBox(wallBox)) {
+      // Collision detected, try to sidestep
+
+      // Try to move perpendicular to original dir (left)
+      const leftDir = new THREE.Vector3(-dir.z, 0, dir.x);
+      let sidePos = monsterPos.clone().addScaledVector(leftDir, monsterSpeed);
+      let sideBox = monster.userData.box.clone();
+      const sideOffset = new THREE.Vector3().subVectors(sidePos, monsterPos);
+      sideBox.min.add(sideOffset);
+      sideBox.max.add(sideOffset);
+
+      let collisionLeft = false;
+      for (const wallBox2 of wallBoxes) {
+        if (sideBox.intersectsBox(wallBox2)) {
+          collisionLeft = true;
+          break;
+        }
+      }
+
+      if (!collisionLeft) {
+        monster.position.copy(sidePos);
+        monster.userData.box.copy(sideBox);
+        return;
+      }
+
+      // Try right sidestep
+      const rightDir = new THREE.Vector3(dir.z, 0, -dir.x);
+      sidePos = monsterPos.clone().addScaledVector(rightDir, monsterSpeed);
+      sideBox = monster.userData.box.clone();
+      const rightOffset = new THREE.Vector3().subVectors(sidePos, monsterPos);
+      sideBox.min.add(rightOffset);
+      sideBox.max.add(rightOffset);
+
+      let collisionRight = false;
+      for (const wallBox3 of wallBoxes) {
+        if (sideBox.intersectsBox(wallBox3)) {
+          collisionRight = true;
+          break;
+        }
+      }
+
+      if (!collisionRight) {
+        monster.position.copy(sidePos);
+        monster.userData.box.copy(sideBox);
+        return;
+      }
+
+      // No sidestep possible, don't move this frame
+      return;
+    }
+  }
+
+  // No collision, move forward
+  monster.position.copy(nextPos);
+  monster.userData.box.copy(monsterBox);
+}
+
 const ambientAudio = new Audio('back-rooms-ambience-made-with-Voicemod.mp3'); // Put your ambient sound file here
 ambientAudio.loop = true;
 ambientAudio.volume = 1;
@@ -387,78 +575,6 @@ function onMouseMove(e) {
   yaw -= e.movementX * sensitivity;
   pitch -= e.movementY * sensitivity;
   pitch = Math.min(Math.max(pitch, -pitchLimit), pitchLimit);
-}
-
-function createMonster() {
-  const geo = new THREE.SphereGeometry(0.8, 16, 16); // or BoxGeometry for a blocky monster
-  const mat = new THREE.MeshLambertMaterial({ color: 0x000000 });
-  monster = new THREE.Mesh(geo, mat);
-
-  monster.position.y = 0.8; // Adjust for monster height
-  setMonsterRandomStart();
-  scene.add(monster);
-}
-
-function showDefeatedScreen() {
-  defeated = true;
-  ambientAudio.pause(); // Optional: stop sound
-  document.exitPointerLock?.(); // Exit mouse lock if active
-  document.getElementById('defeatedScreen').style.display = 'flex';
-}
-
-document.getElementById('restartBtn').addEventListener('click', () => {
-  location.reload(); // Full page reload to reset everything
-});
-
-function setMonsterRandomStart() {
-  const range = 30;
-  let x, z, pos;
-
-  do {
-    x = (Math.random() * 2 - 1) * range;
-    z = (Math.random() * 2 - 1) * range;
-    pos = new THREE.Vector3(x, monster.position.y, z);
-  } while (pos.distanceTo(camera.position) < 8 || checkCollision(pos));
-
-  monster.position.set(x, monster.position.y, z);
-}
-
-function maybeTeleportMonsterToPlayer() {
-  const maxDistance = 60; // too far = teleport
-  const minDistance = 10;
-  const desiredDistance = 20 + Math.random() * 10;
-  const maxAttempts = 50;
-
-  const distance = monster.position.distanceTo(camera.position);
-  if (distance < maxDistance) return; // don't teleport
-
-  for (let i = 0; i < maxAttempts; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const x = camera.position.x + Math.cos(angle) * desiredDistance;
-    const z = camera.position.z + Math.sin(angle) * desiredDistance;
-    const testPos = new THREE.Vector3(x, monster.position.y, z);
-
-    if (
-      testPos.distanceTo(camera.position) >= minDistance &&
-      !checkCollision(testPos)
-    ) {
-      monster.position.copy(testPos);
-      console.log("Monster teleported closer!");
-      return;
-
-      function maybeTeleportMonsterToPlayer() {
-  if (!monster) return; // prevent errors if monster isn't created
-  // ... rest of teleport code
-}
-
-    }
-  }
-
-  console.warn("Could not find valid teleport location for monster.");
-}
-
-if (!defeated) {
-  maybeTeleportMonsterToPlayer();
 }
 
 function animate() {
@@ -540,24 +656,6 @@ if (walkTime > 0) {
   const pos = camera.position;
   document.getElementById('positionDisplay').textContent = 
   `x: ${pos.x.toFixed(2)}, y: ${pos.y.toFixed(2)}, z: ${pos.z.toFixed(2)}`;
-
-  if (monster) {
-  const direction = new THREE.Vector3().subVectors(camera.position, monster.position);
-  direction.y = 0; // keep on ground plane
-  const distance = direction.length();
-
-  if (distance > 0.5) {
-    direction.normalize();
-    const moveSpeed = 1.5 * dt; // monster speed
-    monster.position.addScaledVector(direction, moveSpeed);
-  }
-
-  // Collision check with player
-  if (distance < 0.75) {
-    showDefeatedScreen();
-  }
-}
-
 
   renderer.render(scene, camera);
 }
