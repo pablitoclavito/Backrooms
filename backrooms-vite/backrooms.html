@@ -36,6 +36,18 @@
   z-index: 100;
 "></div>
 
+<div id="positionDisplayMonster" style="
+  position: absolute;
+  top: 50px;
+  left: 10px;
+  padding: 6px 10px;
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  font-family: monospace;
+  font-size: 14px;
+  z-index: 100;
+"></div>
+
 <div id="loadingScreen" style="
   position: absolute;
   top: 0; left: 0;
@@ -96,7 +108,7 @@ import { EffectComposer } from '../three/examples/jsm/postprocessing/EffectCompo
 
   let monster;
 
-  const loadingScreen = document.getElementById('loadingScreen');
+const loadingScreen = document.getElementById('loadingScreen');
 const loadingBar = document.getElementById('loadingBar');
 
 const controlsScreen = document.getElementById('controlsScreen');
@@ -154,7 +166,7 @@ const ModelLoader = new GLTFLoader();
 ModelLoader.load(
   '../bacteria_backrooms.glb', // Path relative to public/
   (gltf) => {
-    const monster = gltf.scene;
+    monster = gltf.scene;
     monster.scale.set(0.4, 0.4, 0.4); // Optional scaling
     monster.position.set(0, 0, 0); // Optional positioning
     scene.add(monster);
@@ -240,6 +252,9 @@ const WALL_HEIGHT = 3;
 const FADE_DURATION = 1; // seconds
 const UNLOAD_DISTANCE = 90; // distance threshold for wall unload
 
+const GRID_STEP = CHUNK_SIZE / 8; // same as used in generateChunk
+const wallGrid = new Map(); // or use a 2D array if world size is fixed
+
 const activeChunks = new Map();
 
 createStartRoom();
@@ -275,6 +290,37 @@ function createWall(x, z, length, height, isVertical, chunkKey) {
   scene.add(mesh);
   if (!activeChunks.has(chunkKey)) activeChunks.set(chunkKey, []);
   activeChunks.get(chunkKey).push(mesh);
+
+  const halfX = width / 2;
+  const halfZ = depth / 2;
+  
+  // Sample points across the wall's area and mark them blocked
+  for (let dx = -halfX; dx <= halfX; dx += GRID_STEP / 2) {
+    for (let dz = -halfZ; dz <= halfZ; dz += GRID_STEP / 2) {
+      const gx = Math.floor((x + dx) / GRID_STEP);
+      const gz = Math.floor((z + dz) / GRID_STEP);
+      wallGrid.set(`${gx},${gz}`, true); // true = wall
+    }
+  }
+
+}
+
+function worldToGrid(pos) {
+  return {
+    x: Math.floor(pos.x / GRID_STEP),
+    z: Math.floor(pos.z / GRID_STEP)
+  };
+}
+
+function gridToWorld(gx, gz) {
+  return {
+    x: gx * GRID_STEP + GRID_STEP / 2,
+    z: gz * GRID_STEP + GRID_STEP / 2
+  };
+}
+
+function isWalkable(gx, gz) {
+  return !wallGrid.has(`${gx},${gz}`);
 }
 
 function generateChunk(cx, cz) {
@@ -437,86 +483,86 @@ const monsterSpeed = 0.05; // units per frame, adjust as needed
 
 // Make sure monster has a bounding box:
 
-function moveMonsterTowardPlayer() {
-  const playerPos = camera.position;
-  const monsterPos = monster.position;
+// function moveMonsterTowardPlayer() {
+//   const playerPos = camera.position;
+//   const monsterPos = monster.position;
 
-  // Direction vector from monster to player
-  const dir = new THREE.Vector3().subVectors(playerPos, monsterPos);
-  dir.y = 0; // ignore vertical difference to keep on ground
-  const distance = dir.length();
-  if (distance < 0.1) return; // close enough, stop
+//   // Direction vector from monster to player
+//   const dir = new THREE.Vector3().subVectors(playerPos, monsterPos);
+//   dir.y = 0; // ignore vertical difference to keep on ground
+//   const distance = dir.length();
+//   if (distance < 0.1) return; // close enough, stop
 
-  dir.normalize();
+//   dir.normalize();
 
-  // Attempted next position
-  const nextPos = monsterPos.clone().addScaledVector(dir, monsterSpeed);
+//   // Attempted next position
+//   const nextPos = monsterPos.clone().addScaledVector(dir, monsterSpeed);
 
-  // Update monster bounding box to new position
-  const monsterBox = monster.userData.box.clone();
-  const offset = new THREE.Vector3().subVectors(nextPos, monsterPos);
-  monsterBox.min.add(offset);
-  monsterBox.max.add(offset);
+//   // Update monster bounding box to new position
+//   const monsterBox = monster.userData.box.clone();
+//   const offset = new THREE.Vector3().subVectors(nextPos, monsterPos);
+//   monsterBox.min.add(offset);
+//   monsterBox.max.add(offset);
 
-  // Check collision with all wall boxes
-  const wallBoxes = getAllWallBoxes();
-  for (const wallBox of wallBoxes) {
-    if (monsterBox.intersectsBox(wallBox)) {
-      // Collision detected, try to sidestep
+//   // Check collision with all wall boxes
+//   const wallBoxes = getAllWallBoxes();
+//   for (const wallBox of wallBoxes) {
+//     if (monsterBox.intersectsBox(wallBox)) {
+//       // Collision detected, try to sidestep
 
-      // Try to move perpendicular to original dir (left)
-      const leftDir = new THREE.Vector3(-dir.z, 0, dir.x);
-      let sidePos = monsterPos.clone().addScaledVector(leftDir, monsterSpeed);
-      let sideBox = monster.userData.box.clone();
-      const sideOffset = new THREE.Vector3().subVectors(sidePos, monsterPos);
-      sideBox.min.add(sideOffset);
-      sideBox.max.add(sideOffset);
+//       // Try to move perpendicular to original dir (left)
+//       const leftDir = new THREE.Vector3(-dir.z, 0, dir.x);
+//       let sidePos = monsterPos.clone().addScaledVector(leftDir, monsterSpeed);
+//       let sideBox = monster.userData.box.clone();
+//       const sideOffset = new THREE.Vector3().subVectors(sidePos, monsterPos);
+//       sideBox.min.add(sideOffset);
+//       sideBox.max.add(sideOffset);
 
-      let collisionLeft = false;
-      for (const wallBox2 of wallBoxes) {
-        if (sideBox.intersectsBox(wallBox2)) {
-          collisionLeft = true;
-          break;
-        }
-      }
+//       let collisionLeft = false;
+//       for (const wallBox2 of wallBoxes) {
+//         if (sideBox.intersectsBox(wallBox2)) {
+//           collisionLeft = true;
+//           break;
+//         }
+//       }
 
-      if (!collisionLeft) {
-        monster.position.copy(sidePos);
-        monster.userData.box.copy(sideBox);
-        return;
-      }
+//       if (!collisionLeft) {
+//         monster.position.copy(sidePos);
+//         monster.userData.box.copy(sideBox);
+//         return;
+//       }
 
-      // Try right sidestep
-      const rightDir = new THREE.Vector3(dir.z, 0, -dir.x);
-      sidePos = monsterPos.clone().addScaledVector(rightDir, monsterSpeed);
-      sideBox = monster.userData.box.clone();
-      const rightOffset = new THREE.Vector3().subVectors(sidePos, monsterPos);
-      sideBox.min.add(rightOffset);
-      sideBox.max.add(rightOffset);
+//       // Try right sidestep
+//       const rightDir = new THREE.Vector3(dir.z, 0, -dir.x);
+//       sidePos = monsterPos.clone().addScaledVector(rightDir, monsterSpeed);
+//       sideBox = monster.userData.box.clone();
+//       const rightOffset = new THREE.Vector3().subVectors(sidePos, monsterPos);
+//       sideBox.min.add(rightOffset);
+//       sideBox.max.add(rightOffset);
 
-      let collisionRight = false;
-      for (const wallBox3 of wallBoxes) {
-        if (sideBox.intersectsBox(wallBox3)) {
-          collisionRight = true;
-          break;
-        }
-      }
+//       let collisionRight = false;
+//       for (const wallBox3 of wallBoxes) {
+//         if (sideBox.intersectsBox(wallBox3)) {
+//           collisionRight = true;
+//           break;
+//         }
+//       }
 
-      if (!collisionRight) {
-        monster.position.copy(sidePos);
-        monster.userData.box.copy(sideBox);
-        return;
-      }
+//       if (!collisionRight) {
+//         monster.position.copy(sidePos);
+//         monster.userData.box.copy(sideBox);
+//         return;
+//       }
 
-      // No sidestep possible, don't move this frame
-      return;
-    }
-  }
+//       // No sidestep possible, don't move this frame
+//       return;
+//     }
+//   }
 
-  // No collision, move forward
-  monster.position.copy(nextPos);
-  monster.userData.box.copy(monsterBox);
-}
+//   // No collision, move forward
+//   monster.position.copy(nextPos);
+//   monster.userData.box.copy(monsterBox);
+// }
 
 const ambientAudio = new Audio('back-rooms-ambience-made-with-Voicemod.mp3'); // Put your ambient sound file here
 ambientAudio.loop = true;
@@ -577,6 +623,111 @@ function onMouseMove(e) {
   pitch = Math.min(Math.max(pitch, -pitchLimit), pitchLimit);
 }
 
+function findPathAStar(start, goal) {
+  const openSet = [start];
+  const cameFrom = new Map();
+
+  const gScore = new Map();
+  const fScore = new Map();
+
+  const key = (x, z) => `${x},${z}`;
+  gScore.set(key(start.x, start.z), 0);
+  fScore.set(key(start.x, start.z), heuristic(start, goal));
+
+  while (openSet.length > 0) {
+    // Get node with lowest fScore
+    openSet.sort((a, b) => fScore.get(key(a.x, a.z)) - fScore.get(key(b.x, b.z)));
+    const current = openSet.shift();
+    const currKey = key(current.x, current.z);
+
+    if (current.x === goal.x && current.z === goal.z) {
+      return reconstructPath(cameFrom, current);
+    }
+
+    for (const dir of [
+      { x: 1, z: 0 },
+      { x: -1, z: 0 },
+      { x: 0, z: 1 },
+      { x: 0, z: -1 }
+    ]) {
+      const neighbor = { x: current.x + dir.x, z: current.z + dir.z };
+      const neighborKey = key(neighbor.x, neighbor.z);
+
+      if (!isWalkable(neighbor.x, neighbor.z)) continue;
+
+      const tentativeG = (gScore.get(currKey) ?? Infinity) + 1;
+
+      if (tentativeG < (gScore.get(neighborKey) ?? Infinity)) {
+        cameFrom.set(neighborKey, current);
+        gScore.set(neighborKey, tentativeG);
+        fScore.set(neighborKey, tentativeG + heuristic(neighbor, goal));
+
+        if (!openSet.some(n => n.x === neighbor.x && n.z === neighbor.z)) {
+          openSet.push(neighbor);
+        }
+      }
+    }
+  }
+
+  return []; // No path
+}
+
+function heuristic(a, b) {
+  return Math.abs(a.x - b.x) + Math.abs(a.z - b.z); // Manhattan distance
+}
+
+function reconstructPath(cameFrom, current) {
+  const path = [current];
+  const key = (x, z) => `${x},${z}`;
+  while (cameFrom.has(key(current.x, current.z))) {
+    current = cameFrom.get(key(current.x, current.z));
+    path.push(current);
+  }
+  return path.reverse();
+}
+
+let monsterPath = [];
+let monsterPathIndex = 0;
+let lastPathUpdate = 0;
+
+function updateMonsterPathfinding() {
+  const now = performance.now();
+  if (now - lastPathUpdate > 1000) { // Recalculate path every second
+    const monsterGrid = worldToGrid(monster.position);
+    const playerGrid = worldToGrid(camera.position);
+    monsterPath = findPathAStar(monsterGrid, playerGrid);
+    monsterPathIndex = 0;
+    lastPathUpdate = now;
+  }
+
+  if (monsterPath && monsterPath.length > 0 && monsterPathIndex < monsterPath.length) {
+    const targetCell = monsterPath[monsterPathIndex];
+    const targetPos = gridToWorld(targetCell.x, targetCell.z);
+
+    const monsterSpeed = 1.5;
+    const delta = clock.getDelta();
+
+    const dir = new THREE.Vector3(
+      targetPos.x - monster.position.x,
+      0,
+      targetPos.z - monster.position.z
+    );
+
+    const dist = dir.length();
+    dir.normalize();
+
+    if (dist > 0.1) {
+      monster.position.x += dir.x * monsterSpeed * delta;
+      monster.position.z += dir.z * monsterSpeed * delta;
+    } else {
+      monsterPathIndex++;
+    }
+
+    monster.lookAt(targetPos.x, monster.position.y, targetPos.z); // face player
+    monster.userData.box.setFromObject(monster);
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
 
@@ -596,6 +747,8 @@ function animate() {
   const speed = 3;
 
   manageChunks();
+
+  updateMonsterPathfinding();
 
   const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
   const right = new THREE.Vector3(Math.sin(yaw - Math.PI / 2), 0, Math.cos(yaw - Math.PI / 2));
@@ -656,6 +809,10 @@ if (walkTime > 0) {
   const pos = camera.position;
   document.getElementById('positionDisplay').textContent = 
   `x: ${pos.x.toFixed(2)}, y: ${pos.y.toFixed(2)}, z: ${pos.z.toFixed(2)}`;
+
+  let mpos = monster.position;
+  document.getElementById('positionDisplayMonster').textContent = 
+  `x: ${mpos.x.toFixed(2)}, y: ${mpos.y.toFixed(2)}, z: ${mpos.z.toFixed(2)}`;
 
   renderer.render(scene, camera);
 }
