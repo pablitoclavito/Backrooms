@@ -1,5 +1,5 @@
 @echo off
-start http://localhost:8000/backrooms.html
-cd C:\Users\User\Downloads\Backrooms
-python -m http.server 8000
+start http://localhost:5173/backrooms.html
+cd C:\Users\User\Downloads\Backrooms\backrooms-vite
+npm run dev
 pause
