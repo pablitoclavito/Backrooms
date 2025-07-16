@@ -92,6 +92,47 @@
   <!-- Add more controls as needed -->
 </div>
 
+<div id="noteHint" style="
+  position: absolute;
+  bottom: 60px;
+  width: 100%;
+  text-align: center;
+  color: white;
+  font-family: sans-serif;
+  display: none;
+">Press [Q] to read note</div>
+
+<div id="noteOverlay" style="
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 60%;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  font-family: sans-serif;
+  text-align: center;
+  z-index: 10;
+  border-radius: 10px;
+">
+
+<p id="noteText">Note text here...</p>
+  <p style="margin-top: 20px; font-size: 0.9em;">Press [Q] again to close</p>
+</div>
+
+<div id="battery-ui" style="position: absolute; top: 10px; right: 10px; width: 100px; height: 20px; border: 2px solid white;">
+  <div id="battery-fill" style="height: 100%; width: 100%; background: green;"></div>
+</div>
+
+<style>
+@keyframes flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+</style>
+
 <script type="module">
 
 import * as THREE from '../three';
@@ -108,17 +149,81 @@ import { EffectComposer } from '../three/examples/jsm/postprocessing/EffectCompo
 
   let monster;
 
+  let hoveredNoteIndex = -1;
+  
+  let noteOpen = false;
+
+  let walkBlend = 0; // 0 = idle, 1 = walking
+
+  let isWalking = false;
+
+  let batteryCapacity = 100;  // initial full battery charge (0-100%)
+
+  let batteryLevel = 1.0; // Starts at full charge (100%)
+
+  const MAX_BATTERY = 1;
+
 const loadingScreen = document.getElementById('loadingScreen');
 const loadingBar = document.getElementById('loadingBar');
 
 const controlsScreen = document.getElementById('controlsScreen');
 let controlsScreenVisible = false;
 
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+const possibleNoteTexts = [
+  "Do not trust the silence.",
+  "It watches when you cannot see.",
+  "There is something behind the wall.",
+  "You have been here before.",
+  "HELP HELP HELP HELP HELP",
+  "Did you miss me?",
+  "They found me. You are next.",
+  "LET ME OUT",
+  "I'm hungry",
+  "There is no escape."
+];
+
+const batteryObjects = []; // All spawned battery clones
+let hoveredBattery = null;
+const pickupMessage = document.createElement('div');
+pickupMessage.style.position = 'absolute';
+pickupMessage.style.color = 'white';
+pickupMessage.style.fontSize = '16px';
+pickupMessage.style.bottom = '60px';
+pickupMessage.style.left = '50%';
+pickupMessage.style.transform = 'translateX(-50%)';
+pickupMessage.style.padding = '4px 8px';
+pickupMessage.style.background = 'rgba(0, 0, 0, 0.6)';
+pickupMessage.style.borderRadius = '4px';
+pickupMessage.style.display = 'none';
+pickupMessage.innerText = 'Press G to pick up battery';
+document.body.appendChild(pickupMessage);
+
 window.addEventListener('keydown', (event) => {
   if (event.key.toLowerCase() === 'e') {
     controlsScreenVisible = !controlsScreenVisible;
     controlsScreen.style.display = controlsScreenVisible ? 'block' : 'none';
     console.log('Controls screen visible:', controlsScreenVisible);
+  }
+});
+
+window.addEventListener('mousemove', (event) => {
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() === 'q') {
+    if (hoveredNoteIndex !== -1 && !noteOpen) {
+      document.getElementById("noteText").innerText = noteTexts[hoveredNoteIndex];
+      document.getElementById("noteOverlay").style.display = 'block';
+      noteOpen = true;
+    } else if (noteOpen) {
+      document.getElementById("noteOverlay").style.display = 'none';
+      noteOpen = false;
+    }
   }
 });
 
@@ -137,6 +242,44 @@ document.body.appendChild(renderer.domElement);
 
 const flashlightClickSound = new Audio('flashlight_click_sound.mp3');
 flashlightClickSound.volume = 0.9; // adjust as needed
+
+const notes = [];       // note meshes
+const noteTexts = [];   // matching text per note
+const NOTE_SPACING = 60; // minimum distance between notes
+
+function createNote(x, z, text) {
+  const geometry = new THREE.PlaneGeometry(0.5, 0.3);
+  const material = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  const note = new THREE.Mesh(geometry, material);
+
+  note.rotation.x = -Math.PI / 2;
+  note.position.set(x, 0.07, z);
+
+  // Choose a random text
+  const randomText = possibleNoteTexts[Math.floor(Math.random() * possibleNoteTexts.length - 2)];
+  noteTexts.push(randomText);
+
+  scene.add(note);
+  notes.push(note);
+  noteTexts.push(text);
+}
+
+function showNoteHint(show) {
+  document.getElementById("noteHint").style.display = show ? "block" : "none";
+}
+
+function checkNoteHover() {
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(notes);
+
+  if (intersects.length > 0) {
+    hoveredNoteIndex = notes.indexOf(intersects[0].object);
+    showNoteHint(true);
+  } else {
+    hoveredNoteIndex = -1;
+    showNoteHint(false);
+  }
+}
 
 scene.add(new THREE.AmbientLight(0x403010, 0.25));
 
@@ -217,6 +360,59 @@ camera.add(flashlight);
 camera.add(flashlight.target);
 scene.add(camera);
 let flashlightOn = true;
+let batteryCharge = 100;       // Battery charge percentage 0-100
+const batteryDrainRate = 0.5;    // % drained per second when on
+
+function updateBatteryUI() {
+  const fill = document.getElementById('battery-fill');
+  if (fill) {
+    fill.style.width = `${batteryLevel * 100}%`;
+    
+    // Flashing red effect when low
+    if (batteryLevel < 0.2) {
+      fill.style.backgroundColor = (Math.floor(performance.now() * 0.01) % 2 === 0) ? 'red' : 'darkred';
+    } else {
+      fill.style.backgroundColor = 'green';
+    }
+  }
+}
+
+function removeBattery(battery) {
+  scene.remove(battery);
+
+  const index = batteryObjects.indexOf(battery);
+  if (index !== -1) {
+    batteryObjects.splice(index, 1);
+  }
+}
+
+function cleanUpBatteries() {
+  for (let i = batteryObjects.length - 1; i >= 0; i--) {
+    const battery = batteryObjects[i];
+    const isGone = battery.parent !== scene || !battery.visible;
+
+    if (isGone) {
+      batteryObjects.splice(i, 1);
+      pickupMessage.style.display = 'none';
+
+    }
+  }
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() === 'g' && hoveredBattery && hoveredBattery.parent === scene & hoveredBattery.visible) {
+    removeBattery(hoveredBattery);
+    const index = batteryObjects.indexOf(hoveredBattery);
+    if (index !== -1) batteryObjects.splice(index, 1);
+    hoveredBattery = null;
+
+    pickupMessage.style.display = 'none';
+
+    // Recharge flashlight
+    batteryLevel = Math.min(batteryLevel + 0.2, MAX_BATTERY); // +20%
+    updateBatteryUI();
+  }
+});
 
 const loader = new THREE.TextureLoader();
 const wallTex = loader.load('backrooms_wallpaper.jpg');
@@ -323,6 +519,12 @@ function isWalkable(gx, gz) {
   return !wallGrid.has(`${gx},${gz}`);
 }
 
+function isWallAt(x, z) {
+  const gx = Math.floor(x / GRID_STEP);
+  const gz = Math.floor(z / GRID_STEP);
+  return wallGrid.has(`${gx},${gz}`);
+}
+
 function generateChunk(cx, cz) {
   const key = `${cx},${cz}`;
   if (key === "start-room") return; // Avoid overwriting the start room
@@ -338,10 +540,35 @@ function generateChunk(cx, cz) {
           const length = step;
           const isVertical = Math.random() < 0.5;
           createWall(centerX + dx, centerZ + dz, length, WALL_HEIGHT, isVertical, key);
+
+          // --- NOTE PLACEMENT ---
+  if (Math.random() < 0.04) { // 4% chance per chunk
+    const noteX = cx * CHUNK_SIZE + (Math.random() - 0.5) * CHUNK_SIZE;
+    const noteZ = cz * CHUNK_SIZE + (Math.random() - 0.5) * CHUNK_SIZE;
+
+    // Ensure it's far from existing notes
+    let tooClose = false;
+    for (const note of notes) {
+      const dx = note.position.x - noteX;
+      const dz = note.position.z - noteZ;
+      if (dx * dx + dz * dz < NOTE_SPACING * NOTE_SPACING) {
+        tooClose = true;
+        break;
+      }
+    }
+
+    spawnBatteryInChunk(cx, cz);
+
+    if (!tooClose && !isWallAt(noteX, noteZ)) {
+      createNote(noteX, noteZ);
+    }
+  }
+}
+
         }
       }
     }
-}
+
 
 function manageChunks() {
   const cx = Math.floor(camera.position.x / CHUNK_SIZE);
@@ -399,6 +626,59 @@ function manageChunks() {
     if (meshes.length === 0) activeChunks.delete(key);
   }
 }
+
+function createBatteryModel() {
+  const geometry = new THREE.CylinderGeometry(0.2, 0.2, 0.6, 32);
+  const material = new THREE.MeshStandardMaterial({ color: 0x000000 });
+  const battery = new THREE.Mesh(geometry, material);
+
+  // "positive terminal" cap on top
+  const capGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.05, 32);
+  const capMaterial = new THREE.MeshStandardMaterial({ color: 0x999999 });
+  const cap = new THREE.Mesh(capGeometry, capMaterial);
+  cap.position.y = 0.325; // Slightly above the battery
+  battery.add(cap);
+
+  return battery;
+}
+
+let batteryModel = createBatteryModel();
+
+function spawnBatteryInChunk(chunkX, chunkZ) {
+  if (!batteryModel) return null;
+  if (Math.random() > 0.85) return null; // 15% chance
+
+  const batteryClone = batteryModel.clone();
+  const posX = chunkX * CHUNK_SIZE + Math.random() * CHUNK_SIZE;
+  const posZ = chunkZ * CHUNK_SIZE + Math.random() * CHUNK_SIZE;
+  const posY = 0.2; // Adjust if floor is higher
+
+  batteryClone.position.set(posX, posY, posZ);
+  scene.add(batteryClone);
+  batteryObjects.push(batteryClone);
+
+  return batteryClone;
+}
+
+function updateBatteryHover() {
+  const validBatteries = batteryObjects.filter(b => b.parent === scene && b.visible);
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(validBatteries, true);
+
+  if (intersects.length > 0) {
+    hoveredBattery = intersects[0].object;
+    pickupMessage.style.display = 'block';
+  } else {
+    hoveredBattery = null;
+    pickupMessage.style.display = 'none';
+  }
+}
+
+window.addEventListener('mousemove', (event) => {
+  // Convert mouse to normalized device coords (-1 to +1)
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+});
 
 // Collision detection: checks if camera collides with any fully visible wall
 function checkCollision(pos) {
@@ -614,6 +894,11 @@ document.addEventListener('mousedown', (e) => {
   if (e.button === 0) { // Left-click
     flashlightOn = !flashlightOn;
     flashlight.visible = flashlightOn;
+  
+    if (batteryLevel === 0) {
+     flashlight.intensity = 0;
+    flashlightOn = false;
+}
   }
 });
 
@@ -746,9 +1031,13 @@ function animate() {
   const dt = clock.getDelta();
   const speed = 3;
 
+  const delta = clock.getDelta();
+
   manageChunks();
 
-  updateMonsterPathfinding();
+  //updateMonsterPathfinding();
+
+  checkNoteHover();
 
   const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
   const right = new THREE.Vector3(Math.sin(yaw - Math.PI / 2), 0, Math.cos(yaw - Math.PI / 2));
@@ -765,42 +1054,132 @@ function animate() {
   if (moveFlags.left) move.sub(right);
   if (moveFlags.right) move.add(right);
 
+// === Movement Logic ===
 if (move.length() > 0) {
-    move.normalize().multiplyScalar(speed * dt);
-    const newPos = camera.position.clone().add(move);
-    if (!checkCollision(newPos)) {
-      camera.position.copy(newPos);
-    } else {
-      const tryX = camera.position.clone();
-      tryX.x += move.x;
-      if (!checkCollision(tryX)) camera.position.x = tryX.x;
-      const tryZ = camera.position.clone();
-      tryZ.z += move.z;
-      if (!checkCollision(tryZ)) camera.position.z = tryZ.z;
+  move.normalize().multiplyScalar(speed * dt);
+  const newPos = camera.position.clone().add(move);
+
+  if (!checkCollision(newPos)) {
+    camera.position.copy(newPos);
+  } else {
+    const tryX = camera.position.clone();
+    tryX.x += move.x;
+    if (!checkCollision(tryX)) camera.position.x = tryX.x;
+
+    const tryZ = camera.position.clone();
+    tryZ.z += move.z;
+    if (!checkCollision(tryZ)) camera.position.z = tryZ.z;
+  }
+
+  walkTime += dt;         // Increase walk time
+  isWalking = true;
+} else {
+  isWalking = false;
+}
+
+// === Animation Blending Logic ===
+const bobAmplitude = 0.08;
+const swayAmplitude = 0.05;
+const bobSpeed = 8;
+
+if (typeof walkBlend === 'undefined') walkBlend = 0; // init if needed
+
+const targetBlend = isWalking ? 1 : 0;
+const blendSpeed = 5;
+walkBlend += (targetBlend - walkBlend) * blendSpeed * dt;
+
+// Walk animation
+const bobOffset = Math.sin(walkTime * bobSpeed) * bobAmplitude;
+const swayOffset = Math.sin(walkTime * bobSpeed * 0.5) * swayAmplitude;
+
+// Idle animation
+const time = performance.now() * 0.001;
+const idleBob = Math.sin(time * 1.5) * 0.02;
+const idleSway = Math.sin(time) * 0.01;
+
+// Blend between idle and walk
+const finalBob = THREE.MathUtils.lerp(idleBob, bobOffset, walkBlend);
+const finalSway = THREE.MathUtils.lerp(idleSway, swayOffset, walkBlend);
+
+// Apply to camera
+camera.position.y = 1.6 + finalBob;
+camera.rotation.z = finalSway * 0.3;
+
+function updateFlashlightBattery(dt) {
+  if (flashlightOn && batteryLevel > 0) {
+  batteryLevel -= dt * 0.01; // drain over time
+  batteryLevel = Math.max(batteryLevel, 0);
+  updateBatteryUI();
+
+  if (batteryLevel <= 0) {
+    flashlightOn = false;
+    flashlight.intensity = 0;
+  }
+}
+  updateBatteryUI();
+
+  updateBatteryHover();
+}
+
+cleanUpBatteries();
+
+const LOW_BATTERY_THRESHOLD = 0.2; // 20% battery
+
+function updateFlashlightAndBatteryUI(dt) {
+  if (batteryCapacity <= LOW_BATTERY_THRESHOLD) {
+    // Flicker flashlight by random small intensity changes
+    const flickerIntensity = 1.5 * (0.7 + Math.random() * 0.6); // fluctuate roughly between 0.7 and 1.3 times normal
+    flashlight.intensity = flashlightOn ? flickerIntensity * batteryCapacity : 0;
+
+    // Flashing red battery UI
+    const flashSpeed = 6; // flashes per second
+    const alpha = Math.abs(Math.sin(performance.now() * 0.001 * Math.PI * flashSpeed));
+    batteryUI.style.backgroundColor = `rgba(255, 0, 0, ${alpha})`; // red flashing
+  } else {
+    // Normal flashlight intensity scaled by battery
+    flashlight.intensity = flashlightOn ? 1.5 * batteryCapacity : 0;
+
+    // Normal battery UI color (green)
+    batteryUI.style.backgroundColor = '#0f0';
+
+    if (batteryLevel === 0) {
+     flashlight.intensity = 0;
+    flashlightOn = false;
+
+  }
+}
+}
+
+updateFlashlightBattery(dt);
+
+// === Battery Drain Logic ===
+  if (flashlightOn && batteryLevel > 0) {
+    batteryLevel -= dt * 0.01; // Adjust speed
+    batteryLevel = Math.max(batteryLevel, 0);
+
+    updateBatteryUI();
+
+    if (batteryLevel <= 0) {
+      flashlightOn = false;
+      flashlight.intensity = 0;
     }
+  }
 
-    // Increase walk time when moving
-    walkTime += dt;
-
-} else {
-    // Reset or dampen walk time when standing still
-    walkTime = Math.max(0, walkTime - dt * 0);
+  if (flashlight) {
+  if (flashlightOn) {
+    if (batteryLevel <= 0.2) {
+      const flicker = 0.7 * Math.sin(performance.now() * 0.01) + 0.03 * Math.random();
+      flashlight.intensity = 1.5 + flicker;
+    } else {
+      flashlight.intensity = 1.5;
+    }
+  } else {
+    if (batteryLevel === 0) {
+     flashlight.intensity = 0;
+    flashlightOn = false;
+  }
 }
-
-const bobAmplitude = 0.08;     // Up/down amount
-const swayAmplitude = 0.05;    // Left/right amount
-const bobSpeed = 8;            // How fast the bobbing happens
-
-if (walkTime > 0) {
-  const bobOffset = Math.sin(walkTime * bobSpeed) * bobAmplitude;
-  const swayOffset = Math.sin(walkTime * bobSpeed * 0.5) * swayAmplitude;
-
-  camera.position.y = 1.6 + bobOffset;
-  camera.rotation.z = swayOffset * 0.3; // small tilt
-} else {
-  camera.position.y = 1.6;
-  camera.rotation.z = 0;
-}
+  }
 
   camera.rotation.order = 'YXZ';
   camera.rotation.y = yaw;
