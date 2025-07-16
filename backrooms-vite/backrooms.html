@@ -89,7 +89,8 @@
   <p><b>A</b> - Move Left</p>
   <p><b>D</b> - Move Right</p>
   <p><b>Left click</b> - Toggle flashlight on/off</p>
-  <!-- Add more controls as needed -->
+  <p><b>Shift</b> - Sprint</p>
+  <p><b>H</b> - Shout for help</p>
 </div>
 
 <div id="noteHint" style="
@@ -119,17 +120,61 @@
 ">
 
 <p id="noteText">Note text here...</p>
-  <p style="margin-top: 20px; font-size: 0.9em;">Press [Q] again to close</p>
+  <p style="margin-top: 20px; font-size: 0.9em;">...</p>
 </div>
 
 <div id="battery-ui" style="position: absolute; top: 10px; right: 10px; width: 100px; height: 20px; border: 2px solid white;">
   <div id="battery-fill" style="height: 100%; width: 100%; background: green;"></div>
 </div>
 
+<div id="flashlightMessage" style="
+  position: absolute;
+  bottom: 30px;
+  width: 100%;
+  text-align: center;
+  color: #fff;
+  font-family: 'Arial', sans-serif;
+  font-size: 18px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 100;
+">
+  I should probably charge this...
+</div>
+
+<div id="sprintUI" style="
+  position: absolute;
+  top: 60px;
+  right: 10px;
+  width: 150px;
+  height: 18px;
+  border: 2px solid white;
+  background-color: rgba(255,255,255,0.1);
+  z-index: 10;
+">
+  <div id="sprintBar" style="
+    width: 100%;
+    height: 100%;
+    background-color: limegreen;
+    transition: width 0.1s;
+    opacity: 0;
+    transition: opacity 0.8s ease;
+  "></div>
+</div>
+
 <style>
 @keyframes flash {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
+}
+</style>
+
+<style>
+  #battery-ui, #sprintUI, #sprintBar {
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  pointer-events: auto;
 }
 </style>
 
@@ -163,6 +208,26 @@ import { EffectComposer } from '../three/examples/jsm/postprocessing/EffectCompo
 
   const MAX_BATTERY = 1;
 
+  let isSprinting = false;
+
+  let sprintStamina = 1; // 1 = 100%
+
+  const maxSprint = 1;
+  const sprintDuration = 6; // seconds
+  const sprintDepleteRate = 1 / sprintDuration; // per second
+  const sprintRegenRate = 0.02; // slower regen (per second)
+
+  let canSprint = true;
+
+  const walkSpeed = 3;
+  const runSpeed = 6;
+
+  let speed = walkSpeed;
+
+  let sprintFlashTimer = 0;
+
+  let sprintFlashing = false;
+
 const loadingScreen = document.getElementById('loadingScreen');
 const loadingBar = document.getElementById('loadingBar');
 
@@ -172,12 +237,34 @@ let controlsScreenVisible = false;
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function showIntroMessages() {
+  showFlashlightMessage("What is this place?");
+  await wait(3000); // Wait 3 seconds
+
+  showFlashlightMessage("How did I get here?");
+  await wait(3000); // Wait another 3 seconds
+
+}
+
+async function showImInsaneMessages() {
+  showFlashlightMessage("What is that sound?");
+  await wait(5000);
+
+  showFlashlightMessage("I think I'm going insane...");
+  await wait(4000);
+
+}
+
 const possibleNoteTexts = [
   "Do not trust the silence.",
   "It watches when you cannot see.",
   "There is something behind the wall.",
   "You have been here before.",
-  "HELP HELP HELP HELP HELP",
+  "sdfwlsdHwlsdfEskdawsLeisodfP",
   "Did you miss me?",
   "They found me. You are next.",
   "LET ME OUT",
@@ -200,6 +287,17 @@ pickupMessage.style.borderRadius = '4px';
 pickupMessage.style.display = 'none';
 pickupMessage.innerText = 'Press G to pick up battery';
 document.body.appendChild(pickupMessage);
+
+const flashlightMessage = document.getElementById('flashlightMessage');
+
+function showFlashlightMessage(text, duration = 2000) {
+  flashlightMessage.textContent = text;
+  flashlightMessage.style.opacity = '1';
+
+  setTimeout(() => {
+    flashlightMessage.style.opacity = '0';
+  }, duration);
+}
 
 window.addEventListener('keydown', (event) => {
   if (event.key.toLowerCase() === 'e') {
@@ -240,6 +338,90 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
 
+let listener = new THREE.AudioListener();
+camera.add(listener);
+
+let breathingSound = new THREE.Audio(listener);
+let audioLoader = new THREE.AudioLoader();
+
+audioLoader.load('breathing_sounds.wav', (buffer) => {
+  breathingSound.setBuffer(buffer);
+  breathingSound.setLoop(true);
+  breathingSound.setVolume(0); // Start silent
+  breathingSound.play();
+});
+
+// Load the sound
+const hSound = new Audio('help_me_shout.mp3'); // Replace with your actual file path
+hSound.preload = 'auto';
+
+// Cooldown setup
+let lastHSoundTime = 0;
+const hSoundCooldown = 2000; // in milliseconds (2 seconds)
+
+window.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() === 'h') {
+    playHSoundWithCooldown();
+  }
+});
+
+function playHSoundWithCooldown() {
+  const now = performance.now(); // high-precision timestamp
+
+  if (now - lastHSoundTime >= hSoundCooldown) {
+    const soundClone = hSound.cloneNode();
+    soundClone.play();
+    lastHSoundTime = now;
+  }
+}
+
+const sprintSound = new Audio('sounds/sprint-loop.mp3');
+sprintSound.loop = true;
+sprintSound.volume = 0; // Start silent
+let sprintVolumeTarget = 1; // Desired volume
+let sprintFadeSpeed = 0.02; // Speed of fade in/out
+
+const rareSound = new Audio('qotsa_ominous_whispers.mp3');
+rareSound.volume = 0.6; // adjust as needed
+let nextRareSoundTime = Date.now() + getRandomDelay(); // Schedule first play
+
+function getRandomDelay() {
+  return Math.random() * 90000 + 100000; // Between 30s and 90s
+}
+
+function createScanlineTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1;
+  canvas.height = 2;
+
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'black';
+  ctx.fillRect(0, 0, 1, 1); // top pixel black, bottom transparent
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(window.innerWidth, window.innerHeight / 2); // repeat for screen height
+
+  return texture;
+}
+
+const scanlineMaterial = new THREE.MeshBasicMaterial({
+  map: createScanlineTexture(),
+  transparent: true,
+  opacity: 1,
+  depthWrite: false,
+});
+
+const scanlineGeometry = new THREE.PlaneGeometry(2, 2);
+const scanlineMesh = new THREE.Mesh(scanlineGeometry, scanlineMaterial);
+scanlineMesh.material.map.magFilter = THREE.NearestFilter; // keep lines sharp
+
+// Use orthographic camera for screen-aligned quad
+const overlayScene = new THREE.Scene();
+const overlayCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+overlayScene.add(scanlineMesh);
+
 const flashlightClickSound = new Audio('flashlight_click_sound.mp3');
 flashlightClickSound.volume = 0.9; // adjust as needed
 
@@ -255,13 +437,11 @@ function createNote(x, z, text) {
   note.rotation.x = -Math.PI / 2;
   note.position.set(x, 0.07, z);
 
-  // Choose a random text
-  const randomText = possibleNoteTexts[Math.floor(Math.random() * possibleNoteTexts.length - 2)];
-  noteTexts.push(randomText);
+  const noteText = text || possibleNoteTexts[Math.floor(Math.random() * possibleNoteTexts.length)];
+  noteTexts.push(noteText);
 
   scene.add(note);
   notes.push(note);
-  noteTexts.push(text);
 }
 
 function showNoteHint(show) {
@@ -375,6 +555,21 @@ function updateBatteryUI() {
       fill.style.backgroundColor = 'green';
     }
   }
+}
+
+function fadeOutUI(elementId) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  el.style.opacity = '0';
+  // Optional: disable pointer events when invisible
+  el.style.pointerEvents = 'none';
+}
+
+function fadeInUI(elementId) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  el.style.opacity = '1';
+  el.style.pointerEvents = 'auto';
 }
 
 function removeBattery(battery) {
@@ -646,7 +841,7 @@ let batteryModel = createBatteryModel();
 
 function spawnBatteryInChunk(chunkX, chunkZ) {
   if (!batteryModel) return null;
-  if (Math.random() > 0.85) return null; // 15% chance
+  if (Math.random() > 0.25) return null;
 
   const batteryClone = batteryModel.clone();
   const posX = chunkX * CHUNK_SIZE + Math.random() * CHUNK_SIZE;
@@ -705,14 +900,18 @@ const sensitivity = 0.003;
 const pitchLimit = Math.PI / 2 * 0.9;
 const moveFlags = { up: false, down: false, left: false, right: false };
 
+let keys = {};
+
 window.addEventListener('keydown', e => {
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) e.preventDefault();
+  keys[e.key.toLowerCase()] = true;
   if (e.code === 'KeyW') moveFlags.down = true;
   if (e.code === 'KeyS') moveFlags.up = true;
   if (e.code === 'KeyA') moveFlags.right = true;
   if (e.code === 'KeyD') moveFlags.left = true;
 });
 window.addEventListener('keyup', e => {
+  keys[e.key.toLowerCase()] = false;
   if (e.code === 'KeyW') moveFlags.down = false;
   if (e.code === 'KeyS') moveFlags.up = false;
   if (e.code === 'KeyA') moveFlags.right = false;
@@ -898,6 +1097,7 @@ document.addEventListener('mousedown', (e) => {
     if (batteryLevel === 0) {
      flashlight.intensity = 0;
     flashlightOn = false;
+    showFlashlightMessage("I should probably charge this...");
 }
   }
 });
@@ -1025,11 +1225,12 @@ function animate() {
     return; // Stop animation until loading done
   } else if (loadingScreen.style.display !== 'none') {
     loadingScreen.style.display = 'none';
+    wait(4000);
+    showIntroMessages();
   }
 
 
   const dt = clock.getDelta();
-  const speed = 3;
 
   const delta = clock.getDelta();
 
@@ -1045,7 +1246,7 @@ function animate() {
 
   if (firstFrame)
   {
-    findSafeStartPosition(); // Ensures you're not inside a wall
+    findSafeStartPosition();
     firstFrame = false;
   }
 
@@ -1075,6 +1276,96 @@ if (move.length() > 0) {
   isWalking = true;
 } else {
   isWalking = false;
+}
+
+const fadeSpeed = 0.5; // Speed at which it fades in/out
+if (breathingSound.isPlaying) {
+  if (isWalking) {
+    // Fade out
+    breathingSound.setVolume(Math.max(0, breathingSound.getVolume() - fadeSpeed * dt));
+  } else {
+    // Fade in
+    breathingSound.setVolume(Math.min(1, breathingSound.getVolume() + fadeSpeed * dt));
+  }
+}
+
+// Sprinting sound logic
+if (isSprinting) {
+  sprintVolumeTarget = 1; // Target volume when sprinting
+  if (sprintSound.paused) sprintSound.play();
+} else {
+  sprintVolumeTarget = 0; // Target volume when not sprinting
+}
+
+// Smooth volume fade
+if (Math.abs(sprintSound.volume - sprintVolumeTarget) > 0.01) {
+  sprintSound.volume += (sprintVolumeTarget - sprintSound.volume) * sprintFadeSpeed;
+} else {
+  sprintSound.volume = sprintVolumeTarget;
+  if (sprintVolumeTarget === 0 && !sprintSound.paused) {
+    sprintSound.pause();
+    sprintSound.currentTime = 0;
+  }
+}
+
+if (Date.now() >= nextRareSoundTime) {
+  rareSound.play();
+  nextRareSoundTime = Date.now() + getRandomDelay(); // Schedule next
+  showImInsaneMessages();
+}
+
+const isMoving = move.lengthSq() > 0;
+const shiftDown = keys['shift'];
+
+// Sprint logic
+if (isMoving && shiftDown && canSprint && sprintStamina > 0) {
+  isSprinting = true;
+  speed = runSpeed;
+  sprintStamina -= sprintDepleteRate * dt;
+  fadeInUI('sprintUI');
+  fadeInUI('sprintBar');
+  if (sprintStamina <= 0) {
+    sprintStamina = 0;
+    canSprint = false;
+    showFlashlightMessage("I can't run anymore, I'm exhausted. I should really exercise more...");
+  }
+} else {
+  fadeOutUI('sprintUI');
+  fadeOutUI('sprintBar');
+  isSprinting = false;
+  speed = walkSpeed; // normal speed
+  sprintStamina += sprintRegenRate * dt;
+  if (sprintStamina >= maxSprint) {
+    sprintStamina = maxSprint;
+    canSprint = true;
+  }
+
+  // Hide bar if full and not sprinting
+  if (sprintStamina >= maxSprint && !shiftDown) {
+  }
+}
+
+document.getElementById('sprintBar').style.width = `${sprintStamina * 100}%`;
+
+const sprintBar = document.getElementById('sprintBar');
+
+if (sprintStamina <= 0.2) {
+  sprintFlashTimer += dt;
+
+  // Flash every 0.4 seconds
+  if (sprintFlashTimer >= 0.4) {
+    sprintFlashing = !sprintFlashing;
+    sprintFlashTimer = 0;
+  }
+
+  sprintBar.style.backgroundColor = 'red';
+  sprintBar.style.opacity = sprintFlashing ? '1' : '0.2';
+} else {
+  // Reset when above 20%
+  sprintFlashTimer = 0;
+  sprintFlashing = false;
+  sprintBar.style.backgroundColor = 'limegreen';
+  sprintBar.style.opacity = '1';
 }
 
 // === Animation Blending Logic ===
@@ -1180,6 +1471,25 @@ updateFlashlightBattery(dt);
   }
 }
   }
+  const batteryUI = document.getElementById('battery-ui');
+  if (flashlightOn) {
+  
+} else {
+}
+
+if (flashlightOn) {
+  fadeInUI('battery-ui');
+} else {
+  fadeOutUI('battery-ui');
+}
+
+if (isSprinting) {
+  fadeInUI('sprintUI')
+  fadeInUI('sprintBar');
+} else {
+  fadeOutUI('sprintUI')
+  fadeOutUI('sprintBar');
+}
 
   camera.rotation.order = 'YXZ';
   camera.rotation.y = yaw;
@@ -1192,7 +1502,8 @@ updateFlashlightBattery(dt);
   let mpos = monster.position;
   document.getElementById('positionDisplayMonster').textContent = 
   `x: ${mpos.x.toFixed(2)}, y: ${mpos.y.toFixed(2)}, z: ${mpos.z.toFixed(2)}`;
-
+  
+  renderer.render(overlayScene, overlayCamera);
   renderer.render(scene, camera);
 }
 
