@@ -2,24 +2,6 @@
 <html>
 <body>
 
-<div id="defeatedScreen" style="
-  position: absolute;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  background: rgba(0,0,0,0.85);
-  color: white;
-  font-size: 48px;
-  font-family: sans-serif;
-  display: none;
-  justify-content: center;
-  align-items: center;
-  flex-direction: column;
-  z-index: 20;
-">
-  <div>You were caught.</div>
-  <button id="restartBtn" style="margin-top: 20px; font-size: 24px;">Restart</button>
-</div>
-
   <div id="instructions" style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; color: white; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,0.75); font-family: sans-serif; font-size: 24px; z-index: 10; cursor: pointer;">
   Click to start
 </div>
@@ -163,6 +145,26 @@
   "></div>
 </div>
 
+<!-- Health UI -->
+<div id="healthBar" style="position: absolute; bottom: 20px; left: 20px; z-index: 10; display: flex; gap: 5px;">
+  <!-- 5 droplets (each with 2 halves) -->
+  <div class="droplet"><div class="top half"></div><div class="bottom half"></div></div>
+  <div class="droplet"><div class="top half"></div><div class="bottom half"></div></div>
+  <div class="droplet"><div class="top half"></div><div class="bottom half"></div></div>
+  <div class="droplet"><div class="top half"></div><div class="bottom half"></div></div>
+  <div class="droplet"><div class="top half"></div><div class="bottom half"></div></div>
+</div>
+
+<!-- Blood splats -->
+<div id="bloodSplats" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9;"></div>
+
+<!-- Game Over -->
+<div id="gameOverScreen" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+  background: rgba(0,0,0,0.8); color: white; font-size: 2em; display: flex; align-items: center; 
+  justify-content: center; z-index: 100;">
+  Game Over<br>Press Enter to restart
+</div>
+
 <style>
 @keyframes flash {
   0%, 100% { opacity: 1; }
@@ -175,6 +177,40 @@
   opacity: 0;
   transition: opacity 0.8s ease;
   pointer-events: auto;
+}
+</style>
+
+<style>
+  .droplet {
+  width: 20px;
+  height: 40px;
+  position: relative;
+  background: none;
+}
+.droplet .half {
+  background: url('red_blood_drops.png') no-repeat center center;
+  background-size: contain;
+  position: absolute;
+  width: 100%;
+  height: 50%;
+  opacity: 1;
+  transition: opacity 0.5s ease;
+}
+.droplet .top { top: 0; }
+.droplet .bottom { bottom: 0; }
+
+.blood-splat {
+  position: absolute;
+  width: 100px;
+  height: 100px;
+  background: url('blood_splatter.png') no-repeat center center;
+  background-size: contain;
+  opacity: 1;
+  animation: slideFade 3s forwards ease-in-out;
+}
+@keyframes slideFade {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(100px); opacity: 0; }
 }
 </style>
 
@@ -227,6 +263,19 @@ import { EffectComposer } from '../three/examples/jsm/postprocessing/EffectCompo
   let sprintFlashTimer = 0;
 
   let sprintFlashing = false;
+
+  
+  let flashlightOffTime = 0;
+
+  let lastDamageTime = 0;
+
+  let health = 10; // 2 halves * 5 droplets
+
+  const MAX_HEALTH = 10;
+
+  let gameOver = false;
+
+  let lastTime = performance.now();
 
 const loadingScreen = document.getElementById('loadingScreen');
 const loadingBar = document.getElementById('loadingBar');
@@ -325,6 +374,14 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+let gameOverActive = false;
+
+document.addEventListener('keydown', (e) => {
+  if (gameOverActive && e.key === 'Enter') {
+    location.reload();
+  }
+});
+
 let loadingStartTime = performance.now();
 const loadingDuration = 4000;
 
@@ -375,7 +432,7 @@ function playHSoundWithCooldown() {
   }
 }
 
-const sprintSound = new Audio('sounds/sprint-loop.mp3');
+const sprintSound = new Audio('running_on_carpet.mp3');
 sprintSound.loop = true;
 sprintSound.volume = 0; // Start silent
 let sprintVolumeTarget = 1; // Desired volume
@@ -387,6 +444,82 @@ let nextRareSoundTime = Date.now() + getRandomDelay(); // Schedule first play
 
 function getRandomDelay() {
   return Math.random() * 90000 + 100000; // Between 30s and 90s
+}
+
+function updateFlashlightDamage(dt) {
+  if (!flashlightOn) {
+    flashlightOffTime += dt;
+    if (flashlightOffTime > 20) {
+      const now = performance.now() / 1000;
+      if (now - lastDamageTime > 5 && !gameOver) {
+        takeDamage();
+        lastDamageTime = now;
+      }
+    }
+  } else {
+    flashlightOffTime = 0;
+  }
+}
+
+function checkMonsterProximity(monsterobj, playerobj, threshold = 2) {
+  const distance = monsterobj.position.distanceTo(playerobj.position);
+  if (distance < threshold) {
+    console.log("Monster is too close! Game over triggered.");
+    triggerGameOver();
+  }
+}
+
+
+function takeDamage() {
+  health = Math.max(0, health - 1);
+  flashRed();
+  addBloodSplat();
+  updateHealthUI();
+}
+
+function checkGameOver(){
+  if (health <= 0) {
+  triggerGameOver();
+}
+}
+
+function flashRed() {
+  const flash = document.createElement('div');
+  flash.style.position = 'absolute';
+  flash.style.top = 0;
+  flash.style.left = 0;
+  flash.style.width = '100%';
+  flash.style.height = '100%';
+  flash.style.background = 'rgba(255,0,0,0.4)';
+  flash.style.zIndex = 99;
+  flash.style.pointerEvents = 'none';
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 300);
+}
+
+function addBloodSplat() {
+  const splat = document.createElement('div');
+  splat.className = 'blood-splat';
+  splat.style.left = `${Math.random() * 80 + 10}%`;
+  splat.style.top = `${Math.random() * 60 + 10}px`;
+  document.getElementById('bloodSplats').appendChild(splat);
+  setTimeout(() => splat.remove(), 3000);
+}
+
+function updateHealthUI() {
+  const allHalves = document.querySelectorAll('.droplet .half');
+  for (let i = 0; i < allHalves.length; i++) {
+    allHalves[i].style.opacity = (i < health) ? '1' : '0';
+  }
+}
+
+function triggerGameOver() {
+  gameOver = true;
+
+  const screen = document.getElementById('gameOverScreen');
+  screen.style.display = 'flex';
+
+  gameOverActive = true;
 }
 
 function createScanlineTexture() {
@@ -643,7 +776,7 @@ const WALL_HEIGHT = 3;
 const FADE_DURATION = 1; // seconds
 const UNLOAD_DISTANCE = 90; // distance threshold for wall unload
 
-const GRID_STEP = CHUNK_SIZE / 8; // same as used in generateChunk
+const GRID_STEP = CHUNK_SIZE / 40; // same as used in generateChunk
 const wallGrid = new Map(); // or use a 2D array if world size is fixed
 
 const activeChunks = new Map();
@@ -958,8 +1091,6 @@ function createCeilingTexture() {
   return texture;
 }
 
-const monsterSpeed = 0.05; // units per frame, adjust as needed
-
 // Make sure monster has a bounding box:
 
 // function moveMonsterTowardPlayer() {
@@ -1091,14 +1222,23 @@ document.addEventListener('pointerlockchange', () => {
 
 document.addEventListener('mousedown', (e) => {
   if (e.button === 0) { // Left-click
-    flashlightOn = !flashlightOn;
-    flashlight.visible = flashlightOn;
+    if (!gameOver) {
+      flashlightOn = !flashlightOn;
+      flashlight.visible = flashlightOn;
   
-    if (batteryLevel === 0) {
-     flashlight.intensity = 0;
-    flashlightOn = false;
-    showFlashlightMessage("I should probably charge this...");
-}
+      if (batteryLevel === 0) {
+        flashlight.intensity = 0;
+        flashlightOn = false;
+        showFlashlightMessage("I should probably charge this...");
+      }
+    }
+
+    if (gameOver) {
+      flashlightOn = false;
+      flashlight.intensity = 0;
+      flashlight.visible = false;
+    }
+    
   }
 });
 
@@ -1118,8 +1258,16 @@ function findPathAStar(start, goal) {
   const key = (x, z) => `${x},${z}`;
   gScore.set(key(start.x, start.z), 0);
   fScore.set(key(start.x, start.z), heuristic(start, goal));
+  const MAX_NODES_EXPLORED = 2000;
+  let nodesExplored = 0;
 
   while (openSet.length > 0) {
+
+    if (nodesExplored++ > MAX_NODES_EXPLORED){
+      console.warn("Max number of nodes explored..?");
+      return[];
+    }
+
     // Get node with lowest fScore
     openSet.sort((a, b) => fScore.get(key(a.x, a.z)) - fScore.get(key(b.x, b.z)));
     const current = openSet.shift();
@@ -1189,7 +1337,7 @@ function updateMonsterPathfinding() {
     const targetCell = monsterPath[monsterPathIndex];
     const targetPos = gridToWorld(targetCell.x, targetCell.z);
 
-    const monsterSpeed = 1.5;
+    const monsterSpeed = 70;
     const delta = clock.getDelta();
 
     const dir = new THREE.Vector3(
@@ -1214,6 +1362,7 @@ function updateMonsterPathfinding() {
 }
 
 function animate() {
+  document.getElementById('gameOverScreen').style.display = 'none';
   requestAnimationFrame(animate);
 
   const now = performance.now();
@@ -1231,14 +1380,24 @@ function animate() {
 
 
   const dt = clock.getDelta();
+  const dtdamage = (now - lastTime) / 1000;
+  lastTime = now;
 
   const delta = clock.getDelta();
 
+  if (!gameOver){
+     updateFlashlightDamage(dtdamage);
+  }
+
+  checkGameOver();
+  
   manageChunks();
 
-  //updateMonsterPathfinding();
+  updateMonsterPathfinding();
 
   checkNoteHover();
+
+   checkMonsterProximity(monster, camera);
 
   const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
   const right = new THREE.Vector3(Math.sin(yaw - Math.PI / 2), 0, Math.cos(yaw - Math.PI / 2));
@@ -1255,6 +1414,7 @@ function animate() {
   if (moveFlags.left) move.sub(right);
   if (moveFlags.right) move.add(right);
 
+if (!gameOver) {
 // === Movement Logic ===
 if (move.length() > 0) {
   move.normalize().multiplyScalar(speed * dt);
@@ -1276,6 +1436,7 @@ if (move.length() > 0) {
   isWalking = true;
 } else {
   isWalking = false;
+}
 }
 
 const fadeSpeed = 0.5; // Speed at which it fades in/out
