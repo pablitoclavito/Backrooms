@@ -2,9 +2,7 @@
 <html>
 <body>
 
-  <div id="instructions" style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; color: white; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,0.75); font-family: sans-serif; font-size: 24px; z-index: 10; cursor: pointer;">
-  Click to start
-</div>
+  <!-- old click-to-start instructions removed -->
 
   <div id="positionDisplay" style="
   position: absolute;
@@ -46,6 +44,24 @@
   <div style="font-size: 32px; margin-bottom: 20px;">Loading...</div>
   <div style="width: 300px; height: 20px; background: rgba(255,255,255,0.2); border-radius: 10px; overflow: hidden;">
     <div id="loadingBar" style="width: 0%; height: 100%; background: #fff;"></div>
+  </div>
+</div>
+ 
+<!-- Start sequence overlay (used for wake-up fade in/out) -->
+<div id="startOverlay" style="
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: #000; opacity: 1; display: block; z-index: 1001;
+  pointer-events: none; transition: opacity 1.2s ease;
+"></div>
+
+<!-- Click-to-start overlay (fades in). Clicking requests pointer lock; fades out on success. -->
+<div id="clickStart" style="
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  z-index: 1100; pointer-events: auto; opacity: 0; transition: opacity 1.0s ease;
+">
+  <div style="font-family: sans-serif; color: #fff; font-size: 42px; letter-spacing: 6px; text-align: center; text-transform: uppercase; text-shadow: 0 2px 8px rgba(0,0,0,0.9);">
+    CLICK TO START
   </div>
 </div>
 
@@ -105,8 +121,8 @@
   <p style="margin-top: 20px; font-size: 0.9em;">...</p>
 </div>
 
-<div id="battery-ui" style="position: absolute; top: 10px; right: 10px; width: 100px; height: 20px; border: 2px solid white;">
-  <div id="battery-fill" style="height: 100%; width: 100%; background: green;"></div>
+<div id="battery-ui" style="position: absolute; top: 10px; right: 10px; width: 100px; height: 20px; border: 2px solid white; z-index: 1002;">
+  <div id="battery-fill" style="height: 100%; width: 100%; background: green; z-index: 1003;"></div>
 </div>
 
 <div id="flashlightMessage" style="
@@ -158,12 +174,87 @@
 <!-- Blood splats -->
 <div id="bloodSplats" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9;"></div>
 
-<!-- Game Over -->
-<div id="gameOverScreen" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-  background: rgba(0,0,0,0.8); color: white; font-size: 2em; display: flex; align-items: center; 
-  justify-content: center; z-index: 100;">
-  Game Over<br>Press Enter to restart
+<!-- Death fade (full black) and Game Over overlays -->
+<div id="deathFade" style="display:none; position: absolute; top:0; left:0; width:100%; height:100%; background: #000; opacity:0; z-index:1000; pointer-events:none; transition: opacity 1.2s ease;"></div>
+
+<!-- VHS overlay removed -->
+
+<div id="gameOverOverlay" style="display:none; position: absolute; top:0; left:0; width:100%; height:100%; background: transparent; color: white; font-family: sans-serif; z-index:1001; pointer-events:none; align-items: center; justify-content: center;">
+  <div id="gameOverContent" style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%;">
+    <div id="gameOverText" style="font-size: 96px; color: #ff0000; text-transform: uppercase; opacity:0; transition: opacity 1.8s ease;">GAME OVER</div>
+    <div id="gameOverSub" style="font-size: 24px; color: #ffffff; text-transform: uppercase; margin-top: 20px; opacity:0; transition: opacity 2.2s ease;">PRESS ENTER TO RESTART</div>
+    <div class="scanlines" id="gameOverScanlines"></div>
+  </div>
 </div>
+
+<!-- Pause menu overlay -->
+<div id="pauseOverlay" style="display:none; position: absolute; inset:0; width:100%; height:100%; background: rgba(0,0,0,0); z-index:1002; pointer-events:none; align-items:center; justify-content:center;">
+  <div id="pauseFade" style="position:absolute; inset:0; background:#000; opacity:0; transition: opacity 1.8s ease; pointer-events:none;"></div>
+  <div id="pauseMenu" style="position:relative; display:flex; flex-direction:column; align-items:center; gap:18px; opacity:0; transition: opacity 0.8s ease 0.6s; pointer-events:none;">
+    <div id="pauseTitle" style="font-size:48px; color:#fff;">Continue?</div>
+    <div id="pauseOptions" style="display:flex; flex-direction:column; gap:8px; align-items:center;">
+      <div class="pauseOption" data-index="0" style="font-size:28px;">Continue</div>
+      <div class="pauseOption" data-index="1" style="font-size:28px;">Restart</div>
+    </div>
+  </div>
+</div>
+
+<style>
+  @keyframes gameOverPulse {
+    0% { opacity: 0.35; }
+    50% { opacity: 1; }
+    100% { opacity: 0.35; }
+  }
+  .game-over-pulse {
+    animation: gameOverPulse 2.5s ease-in-out infinite;
+  }
+
+  /* Glitch effects for game over overlay */
+  @keyframes glitchShift {
+    0% { transform: translate(0,0) skew(0deg); }
+    20% { transform: translate(-6px,2px) skew(-1deg); }
+    40% { transform: translate(5px,-3px) skew(1deg); }
+    60% { transform: translate(-3px,1px) skew(-0.5deg); }
+    80% { transform: translate(2px,0) skew(0.3deg); }
+    100% { transform: translate(0,0) skew(0deg); }
+  }
+
+  @keyframes glitchRGB {
+    0% { text-shadow: -2px 0 red, 2px 0 cyan; }
+    50% { text-shadow: -6px 0 red, 6px 0 cyan; }
+    100% { text-shadow: -2px 0 red, 2px 0 cyan; }
+  }
+
+  .glitch-jitter { animation: glitchShift 0.35s linear both; }
+
+  /* Pause menu option color/transition */
+  #pauseOptions .pauseOption { color: #fff; transition: color 0.9s ease; }
+  .pauseOption.selected { color: #ff3b3b; }
+  .glitch-rgb { animation: glitchRGB 0.35s steps(2, end) both; }
+
+  .scanlines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+      rgba(0,0,0,0.0) 0px,
+      rgba(0,0,0,0.06) 1px
+    );
+    opacity: 0;
+    transition: opacity 0.12s linear;
+    mix-blend-mode: multiply;
+  }
+
+  .glitch-flash { opacity: 0.45 !important; }
+
+  /* Pause menu visuals */
+  #pauseOverlay { display: flex; }
+  #pauseMenu { pointer-events: none; }
+  #pauseOverlay.show { pointer-events: auto; }
+  .pauseOption.selected { color: #ff3b3b; }
+
+  
+</style>
 
 <style>
 @keyframes flash {
@@ -226,6 +317,17 @@ import { EffectComposer } from '../three/examples/jsm/postprocessing/EffectCompo
 
   let firstFrame = true;
 
+  let gameStarted = false;
+
+  // Start sequence (wake-up) state
+  let startSequencePlaying = false;
+  let startSequenceTriggered = false; // set true once we begin the sequence after loading
+  const startSeq = { phase: 0, t: 0, startTime: 0 };
+  let _origCameraPos = null;
+  let _origCameraQuat = null;
+  let _lyingCameraPos = null;
+  let _lyingCameraQuat = null;
+
   let walkTime = 0;
 
   let monster;
@@ -279,12 +381,19 @@ import { EffectComposer } from '../three/examples/jsm/postprocessing/EffectCompo
 
 const loadingScreen = document.getElementById('loadingScreen');
 const loadingBar = document.getElementById('loadingBar');
+// we no longer use the loading screen — hide it so animate doesn't block on it
+try { if (loadingScreen) loadingScreen.style.display = 'none'; } catch(e) {}
 
 const controlsScreen = document.getElementById('controlsScreen');
 let controlsScreenVisible = false;
 
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
+
+// Environment darkness state (0..1) controlled when flashlight points at monster
+let envDarkness = 0;
+let envDarknessTarget = 0;
+const envFadeSpeed = 0.06;
 
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -308,6 +417,157 @@ async function showImInsaneMessages() {
 
 }
 
+// Per-frame update for the wake-up start sequence. This interpolates overlay
+// opacity, ambient/flashlight intensity, and the camera transform.
+function startSequenceUpdate(dt, now) {
+  const so = document.getElementById('startOverlay');
+  const t = now - startSeq.startTime;
+  const d0 = 500;   // initial dark hold
+  const d1 = 1200;  // fade to light
+  const d2 = 800;   // hold light
+  const d3 = 900;   // fade to dark
+  const d4 = 1800;  // camera rise + final reveal
+  const total = d0 + d1 + d2 + d3 + d4;
+  // easing helpers for a more natural rise
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+  const easeOutBack = (t) => {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+  };
+
+  if (t < d0) {
+    // remain fully dark (lying unconscious)
+    if (so) so.style.opacity = '1';
+    if (window.ambientLight) window.ambientLight.intensity = 0.02;
+  } else if (t < d0 + d1) {
+    // fade to light (wakingish)
+    const p = (t - d0) / d1;
+    const pe = easeOutCubic(p);
+    if (so) so.style.opacity = String(1 - pe);
+    if (window.ambientLight) window.ambientLight.intensity = lerp(0.02, 0.45, pe);
+    if (window.flashlight) window.flashlight.intensity = lerp(0, (window.flashlight._baseIntensity || 1.5) * 0.2, pe);
+    // slight subtle head twitch while lying
+    if (_lyingCameraQuat) {
+      const q = new THREE.Quaternion();
+      q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.sin(p * Math.PI * 2) * 0.02);
+      camera.quaternion.copy(_lyingCameraQuat).multiply(q);
+    }
+  } else if (t < d0 + d1 + d2) {
+    // hold light — moment of awareness
+    if (so) so.style.opacity = '0';
+    if (window.ambientLight) window.ambientLight.intensity = 0.45;
+  } else if (t < d0 + d1 + d2 + d3) {
+    // brief fade to dark again (dread)
+    const p = (t - (d0 + d1 + d2)) / d3;
+    const pe = easeOutCubic(p);
+    if (so) so.style.opacity = String(pe);
+    if (window.ambientLight) window.ambientLight.intensity = lerp(0.45, 0.02, pe);
+    if (window.flashlight) window.flashlight.intensity = lerp((window.flashlight._baseIntensity || 1.5) * 0.2, 0, pe);
+  } else if (t < d0 + d1 + d2 + d3 + 3000) {
+    // After the fear fade (d3), wait for the overlay to fade out before starting
+    // the visible look/step animation. We split: d3 (fade to dark), overlayFadeDur,
+    // then movement (lookDur + stepDur + riseDur).
+    const overlayFadeDur = 900; // ms to fade startOverlay out
+    const moveStart = d0 + d1 + d2 + d3 + overlayFadeDur;
+    const lookDur = 1000; // look left-right duration (ms)
+    const stepDur = 1200; // slow step up (ms)
+    const riseDur = 900;  // final stand + settle (ms)
+    const mvTotal = lookDur + stepDur + riseDur;
+
+    if (t < d0 + d1 + d2 + d3 + overlayFadeDur) {
+      // overlay fade-out phase: trigger CSS fade to transparent and keep lighting low
+      if (so) {
+        // start fade-out once when in this window
+        so.style.opacity = '0';
+      }
+      if (window.ambientLight) window.ambientLight.intensity = 0.02;
+      // keep camera at lying pose
+      if (_lyingCameraPos) camera.position.copy(_lyingCameraPos);
+      if (_lyingCameraQuat) camera.quaternion.copy(_lyingCameraQuat);
+    }
+    // movement begins after the overlay has faded out
+    else if (t < moveStart + mvTotal) {
+      const tt = t - moveStart;
+      // phase: look-around
+      if (tt < lookDur) {
+        const p = tt / lookDur;
+        const sway = Math.sin(p * Math.PI * 2) * 0.28;
+        if (_lyingCameraQuat) {
+          const yawQ = new THREE.Quaternion();
+          yawQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), sway);
+          camera.quaternion.copy(_lyingCameraQuat).multiply(yawQ);
+        }
+        if (_lyingCameraPos) camera.position.copy(_lyingCameraPos);
+        if (window.ambientLight) window.ambientLight.intensity = lerp(0.02, 0.12, p * 0.6);
+      }
+      // phase: slow step up
+      else if (tt < lookDur + stepDur) {
+        const p0 = (tt - lookDur) / stepDur;
+        const pe = easeOutCubic(p0);
+        if (_lyingCameraPos && _origCameraPos) {
+          const mid = new THREE.Vector3().lerpVectors(_lyingCameraPos, _origCameraPos, 0.5);
+          const forward = new THREE.Vector3();
+          camera.getWorldDirection(forward);
+          forward.y = 0; forward.normalize();
+          mid.addScaledVector(forward, 0.08);
+          camera.position.lerpVectors(_lyingCameraPos, mid, pe);
+        }
+        if (_lyingCameraQuat && _origCameraQuat) {
+          const midQ = new THREE.Quaternion();
+          THREE.Quaternion.slerp(_lyingCameraQuat, _origCameraQuat, midQ, 0.5);
+          THREE.Quaternion.slerp(_lyingCameraQuat, midQ, camera.quaternion, pe);
+        }
+        if (window.ambientLight) window.ambientLight.intensity = lerp(0.12, 0.32, pe);
+      }
+      // phase: final rise + settle
+      else {
+        const p1 = (tt - lookDur - stepDur) / riseDur;
+        const pe = Math.min(1, easeOutBack(p1));
+        if (_lyingCameraPos && _origCameraPos) {
+          camera.position.lerpVectors(_lyingCameraPos, _origCameraPos, pe);
+          if (p1 > 0.7) {
+            const settle = Math.exp(-8 * (p1 - 0.7)) * 0.02 * (1 - p1);
+            camera.position.y += Math.sin((p1 - 0.7) * Math.PI * 6) * settle;
+          }
+        }
+        if (_lyingCameraQuat && _origCameraQuat) {
+          THREE.Quaternion.slerp(_lyingCameraQuat, _origCameraQuat, camera.quaternion, easeOutCubic(p1));
+        }
+        if (window.ambientLight) window.ambientLight.intensity = lerp(0.32, 0.45, easeOutCubic(p1));
+        if (window.flashlight) window.flashlight.intensity = lerp(0, window.flashlight._baseIntensity || 1.5, easeOutCubic(p1));
+      }
+    }
+    // movement finished — fall through to completion on next frame
+  } else {
+    // sequence finished — hide overlay and enable gameplay
+    if (so) {
+      so.style.opacity = '0';
+      setTimeout(() => { try { so.style.display = 'none'; } catch(e){} }, 900);
+    }
+    if (window.ambientLight) window.ambientLight.intensity = 0.45;
+    if (window.flashlight) { window.flashlight.intensity = window.flashlight._baseIntensity || 1.5; window.flashlight.visible = false; }
+    startSequencePlaying = false;
+    gameStarted = true;
+    // show the intro messages after the camera is upright
+    showIntroMessages();
+    // Fade-in the click-to-start overlay slowly if pointer lock is not yet active
+    try {
+      const cs = document.getElementById('clickStart');
+      if (cs) {
+        if (document.pointerLockElement === document.querySelector('canvas')) {
+          cs.style.opacity = '0'; cs.style.display = 'none';
+        } else {
+          cs.style.display = 'flex';
+          // small delay to ensure display applied before fading
+          setTimeout(() => { try { cs.style.opacity = '1'; } catch(e) {} }, 250);
+        }
+      }
+    } catch(e) {}
+  }
+}
+
 const possibleNoteTexts = [
   "Do not trust the silence.",
   "It watches when you cannot see.",
@@ -322,7 +582,9 @@ const possibleNoteTexts = [
 ];
 
 const batteryObjects = []; // All spawned battery clones
+const candyObjects = []; // spawned candy bars
 let hoveredBattery = null;
+let hoveredCandy = null;
 const pickupMessage = document.createElement('div');
 pickupMessage.style.position = 'absolute';
 pickupMessage.style.color = 'white';
@@ -334,10 +596,34 @@ pickupMessage.style.padding = '4px 8px';
 pickupMessage.style.background = 'rgba(0, 0, 0, 0.6)';
 pickupMessage.style.borderRadius = '4px';
 pickupMessage.style.display = 'none';
-pickupMessage.innerText = 'Press G to pick up battery';
+pickupMessage.innerText = 'Press G to pick up';
 document.body.appendChild(pickupMessage);
 
 const flashlightMessage = document.getElementById('flashlightMessage');
+
+// Setup click-to-start behavior: fade the overlay in, request pointer lock when clicked,
+// and hide the overlay when pointer lock becomes active.
+try {
+  const clickStartEl = document.getElementById('clickStart');
+  if (clickStartEl) {
+    // initially hidden during start sequence; it will fade in after sequence completes
+    // click requests pointer lock on the canvas
+    clickStartEl.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      try { document.querySelector('canvas')?.requestPointerLock(); } catch (e) {}
+    });
+    // hide if pointer lock becomes active
+    document.addEventListener('pointerlockchange', () => {
+      try {
+        if (document.pointerLockElement === document.querySelector('canvas')) {
+          // fade out
+          clickStartEl.style.opacity = '0';
+          setTimeout(() => { try { clickStartEl.style.display = 'none'; } catch (e) {} }, 900);
+        }
+      } catch(e) {}
+    });
+  }
+} catch(e) {}
 
 function showFlashlightMessage(text, duration = 2000) {
   flashlightMessage.textContent = text;
@@ -348,7 +634,12 @@ function showFlashlightMessage(text, duration = 2000) {
   }, duration);
 }
 
+// food message cooldown to avoid spam
+const FOOD_HINT_COOLDOWN = 30000; // 30s
+let lastFoodHintTime = 0;
+
 window.addEventListener('keydown', (event) => {
+  if (pauseMenuActive) return; // don't open controls while paused
   if (event.key.toLowerCase() === 'e') {
     controlsScreenVisible = !controlsScreenVisible;
     controlsScreen.style.display = controlsScreenVisible ? 'block' : 'none';
@@ -362,6 +653,7 @@ window.addEventListener('mousemove', (event) => {
 });
 
 window.addEventListener('keydown', (e) => {
+  if (pauseMenuActive) return; // block note reading while paused
   if (e.key.toLowerCase() === 'q') {
     if (hoveredNoteIndex !== -1 && !noteOpen) {
       document.getElementById("noteText").innerText = noteTexts[hoveredNoteIndex];
@@ -375,12 +667,194 @@ window.addEventListener('keydown', (e) => {
 });
 
 let gameOverActive = false;
+let gameOverAnimating = false;
+let gameOverAnimStart = 0;
+let gameOverAnimDuration = 2000; // ms for camera fall
+let gameOverAllowRestart = false;
+let gameOverCameraLocked = false; // when true, keep camera at final fall transform
+let glitchIntervalId = null;
+let glitchTimeoutId = null;
+ 
+
+function triggerGlitch() {
+  const content = document.getElementById('gameOverContent');
+  const text = document.getElementById('gameOverText');
+  const scan = document.getElementById('gameOverScanlines');
+  if (!content || !text || !scan) return;
+
+  // add classes to produce quick glitch effect
+  content.classList.add('glitch-jitter');
+  text.classList.add('glitch-rgb');
+  scan.classList.add('glitch-flash');
+
+  // randomize length a bit
+  const dur = 220 + Math.floor(Math.random() * 260);
+  glitchTimeoutId = setTimeout(() => {
+    content.classList.remove('glitch-jitter');
+    text.classList.remove('glitch-rgb');
+    scan.classList.remove('glitch-flash');
+    glitchTimeoutId = null;
+  }, dur);
+}
+
+function startGlitchLoop() {
+  stopGlitchLoop();
+  // occasional glitches between ~2.5s and ~7s
+  glitchIntervalId = setInterval(() => {
+    if (Math.random() < 0.65) {
+      triggerGlitch();
+    }
+  }, 2500 + Math.floor(Math.random() * 4500));
+
+  // immediate small chance to glitch as overlay appears
+  if (Math.random() < 0.5) triggerGlitch();
+}
+
+function stopGlitchLoop() {
+  if (glitchIntervalId) { clearInterval(glitchIntervalId); glitchIntervalId = null; }
+  if (glitchTimeoutId) { clearTimeout(glitchTimeoutId); glitchTimeoutId = null; }
+  const content = document.getElementById('gameOverContent');
+  const text = document.getElementById('gameOverText');
+  const scan = document.getElementById('gameOverScanlines');
+  if (content) content.classList.remove('glitch-jitter');
+  if (text) text.classList.remove('glitch-rgb');
+  if (scan) scan.classList.remove('glitch-flash');
+}
+let _gameOverInitial = null;
 
 document.addEventListener('keydown', (e) => {
   if (gameOverActive && e.key === 'Enter') {
     location.reload();
   }
 });
+
+// Pause menu key handling: Escape toggles, arrows navigate, Enter activates
+document.addEventListener('keydown', (e) => {
+  // If the pause menu is active, consume most keys and only allow navigation
+  if (pauseMenuActive) {
+    e.preventDefault();
+    if (e.key === 'ArrowUp') {
+      pauseSelection = Math.max(0, pauseSelection - 1);
+      updatePauseMenuVisual();
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      pauseSelection = Math.min(1, pauseSelection + 1);
+      updatePauseMenuVisual();
+      return;
+    }
+    if (e.key === 'Enter') {
+      // Only activate after the selection has finished fading to red
+      if (!window.pauseSelectionConfirmed) return;
+      // Activate selection
+      if (pauseSelection === 0) {
+        // Continue
+        hidePauseMenu();
+      } else if (pauseSelection === 1) {
+        // Restart
+        location.reload();
+      }
+      return;
+    }
+    if (e.key === 'Escape') {
+      // behave like resume
+      hidePauseMenu();
+      return;
+    }
+    // ignore other keys
+    return;
+  }
+
+  // If pause menu is not active, Esc opens it
+  if (e.key === 'Escape') {
+    showPauseMenu();
+  }
+});
+
+function updatePauseMenuVisual() {
+  const options = document.querySelectorAll('#pauseOptions .pauseOption');
+  options.forEach((opt, idx) => {
+    opt.classList.remove('selected');
+    // explicitly set color so inline/style specificity doesn't block the visual change
+    opt.style.color = '#fff';
+    if (idx === pauseSelection) {
+      opt.classList.add('selected');
+      opt.style.color = '#ff3b3b';
+    }
+  });
+  // require the color fade to finish before Enter will activate
+  if (typeof window.pauseSelectionConfirmTimer !== 'undefined' && window.pauseSelectionConfirmTimer) {
+    clearTimeout(window.pauseSelectionConfirmTimer);
+    window.pauseSelectionConfirmTimer = null;
+  }
+  window.pauseSelectionConfirmed = false;
+  window.pauseSelectionConfirmTimer = setTimeout(() => {
+    window.pauseSelectionConfirmed = true;
+    window.pauseSelectionConfirmTimer = null;
+  }, 900); // match CSS transition time for color
+}
+
+function showPauseMenu() {
+  const loadingScreen = document.getElementById('loadingScreen');
+  if (pauseMenuActive) return;
+  // don't allow pause while loading, or during any game-over sequence
+  if (loadingScreen && loadingScreen.style.display !== 'none') return;
+  if (typeof gameOver !== 'undefined' && gameOver) return;
+  if (typeof gameOverActive !== 'undefined' && gameOverActive) return;
+  if (typeof gameOverAnimating !== 'undefined' && gameOverAnimating) return;
+  pauseMenuActive = true;
+  pauseSelection = 0;
+
+  const overlay = document.getElementById('pauseOverlay');
+  const fade = document.getElementById('pauseFade');
+  const menu = document.getElementById('pauseMenu');
+  if (!overlay || !fade || !menu) return;
+
+  overlay.style.display = 'flex';
+  overlay.style.pointerEvents = 'auto';
+  // trigger fade to black over 1.8s
+  requestAnimationFrame(() => {
+    fade.style.opacity = '1';
+  });
+  // after a short delay show menu (menu has its own transition delay)
+  requestAnimationFrame(() => {
+    menu.style.opacity = '1';
+    overlay.classList.add('show');
+    updatePauseMenuVisual();
+  });
+}
+
+function hidePauseMenu() {
+  if (!pauseMenuActive) return;
+  const overlay = document.getElementById('pauseOverlay');
+  const fade = document.getElementById('pauseFade');
+  const menu = document.getElementById('pauseMenu');
+  if (!overlay || !fade || !menu) {
+    pauseMenuActive = false;
+    return;
+  }
+  // fade menu out quickly then fade background
+  menu.style.opacity = '0';
+  fade.style.opacity = '0';
+  overlay.classList.remove('show');
+  // clear selection visual
+  const opts = document.querySelectorAll('#pauseOptions .pauseOption');
+  opts.forEach((o) => {
+    o.classList.remove('selected');
+    o.style.color = '#fff';
+  });
+  // after transition, hide overlay and re-request pointer lock so game resumes
+  setTimeout(() => {
+    overlay.style.display = 'none';
+    overlay.style.pointerEvents = 'none';
+    pauseMenuActive = false;
+    // clear selection confirmation timer/flag
+    if (window.pauseSelectionConfirmTimer) { clearTimeout(window.pauseSelectionConfirmTimer); window.pauseSelectionConfirmTimer = null; }
+    window.pauseSelectionConfirmed = false;
+    // try to re-lock pointer so gameplay resumes
+    try { document.querySelector('canvas')?.requestPointerLock(); } catch (e) {}
+  }, 900);
+}
 
 let loadingStartTime = performance.now();
 const loadingDuration = 4000;
@@ -394,6 +868,11 @@ camera.position.set(0, 1.6, 0.543);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
+// Ensure the renderer canvas sits behind our UI overlays so overlays are visible
+renderer.domElement.style.position = 'absolute';
+renderer.domElement.style.top = '0';
+renderer.domElement.style.left = '0';
+renderer.domElement.style.zIndex = '0';
 
 let listener = new THREE.AudioListener();
 camera.add(listener);
@@ -417,6 +896,7 @@ let lastHSoundTime = 0;
 const hSoundCooldown = 2000; // in milliseconds (2 seconds)
 
 window.addEventListener('keydown', (e) => {
+  if (pauseMenuActive) return;
   if (e.key.toLowerCase() === 'h') {
     playHSoundWithCooldown();
   }
@@ -471,10 +951,21 @@ function checkMonsterProximity(monsterobj, playerobj, threshold = 2) {
 
 
 function takeDamage() {
+  const prev = health;
   health = Math.max(0, health - 1);
   flashRed();
   addBloodSplat();
   updateHealthUI();
+  // when health is reduced, hint that the player could use food (rate-limited)
+  if (health < prev) {
+    try {
+      const now = Date.now();
+      if (now - lastFoodHintTime > FOOD_HINT_COOLDOWN) {
+        showFlashlightMessage('I could do with some food...', 3000);
+        lastFoodHintTime = now;
+      }
+    } catch (e) {}
+  }
 }
 
 function checkGameOver(){
@@ -514,12 +1005,62 @@ function updateHealthUI() {
 }
 
 function triggerGameOver() {
+  if (gameOver) return; // already triggered
   gameOver = true;
+  // Start camera-fall animation
+  gameOverAnimating = true;
+  gameOverAnimStart = performance.now();
+  gameOverAllowRestart = false;
 
-  const screen = document.getElementById('gameOverScreen');
-  screen.style.display = 'flex';
+  // store initial camera state for smooth interpolation
+  _gameOverInitial = {
+    pitch: camera.rotation.x,
+    roll: camera.rotation.z,
+    y: camera.position.y
+  };
+}
 
-  gameOverActive = true;
+// Start the death fade sequence: fade to black, then show GAME OVER text and subtext
+function startDeathFade() {
+  const deathFade = document.getElementById('deathFade');
+  const overlay = document.getElementById('gameOverOverlay');
+  const gameOverText = document.getElementById('gameOverText');
+  const gameOverSub = document.getElementById('gameOverSub');
+
+  if (!deathFade || !overlay || !gameOverText || !gameOverSub) return;
+
+  // show and fade to black
+  deathFade.style.display = 'block';
+  // small delay to ensure display takes effect
+  requestAnimationFrame(() => {
+    deathFade.style.opacity = '1';
+  });
+
+  // VHS overlay removed; no persistent filter to fade out.
+
+  // After the black fade completes, show game over text
+  const fadeDuration = 1200; // ms (matches CSS transition)
+  setTimeout(() => {
+    overlay.style.display = 'flex';
+    overlay.style.pointerEvents = 'none';
+    // fade in main text and add pulsing (transition length set in CSS inline styles)
+    // use requestAnimationFrame to ensure layout/paint happens before changing opacity
+    requestAnimationFrame(() => {
+      gameOverText.style.opacity = '1';
+      gameOverText.classList.add('game-over-pulse');
+    });
+
+    // start occasional overlay glitches while game over is visible
+    startGlitchLoop();
+
+    // Show subtext after a delay (gives main text time to finish its smooth fade)
+    setTimeout(() => {
+      gameOverSub.style.opacity = '1';
+      // allow restart
+      gameOverAllowRestart = true;
+      gameOverActive = true;
+    }, 2200);
+  }, fadeDuration);
 }
 
 function createScanlineTexture() {
@@ -594,7 +1135,11 @@ function checkNoteHover() {
   }
 }
 
-scene.add(new THREE.AmbientLight(0x403010, 0.25));
+// Ambient light (kept as a reference so we can lerp intensity for effects)
+const ambientLight = new THREE.AmbientLight(0x403010, 0.25);
+scene.add(ambientLight);
+// expose ambientLight for helper modules
+window.ambientLight = ambientLight;
 
 function getAllWallBoxes() {
   const boxes = [];
@@ -615,6 +1160,16 @@ function isCollidingWithWalls(box, wallBoxes) {
   return false;
 }
 
+// Helper: walk up parents until finding an object reference contained in `arr`
+function findAncestorInArray(obj, arr) {
+  let cur = obj;
+  while (cur) {
+    if (arr.indexOf(cur) !== -1) return cur;
+    cur = cur.parent;
+  }
+  return null;
+}
+
 // Create the loader
 const ModelLoader = new GLTFLoader();
 
@@ -623,16 +1178,98 @@ ModelLoader.load(
   '../bacteria_backrooms.glb', // Path relative to public/
   (gltf) => {
     monster = gltf.scene;
-    monster.scale.set(0.4, 0.4, 0.4); // Optional scaling
-    monster.position.set(0, 0, 0); // Optional positioning
+    monster.scale.set(0.4, 0.4, 0.4);
+    monster.position.set(0, 0, 0);
     scene.add(monster);
+
+    // Log all child part names for animation reference
+    console.log('Monster GLB parts:');
+    monster.traverse((obj) => {
+      if (obj.name) {
+        console.log('Part:', obj.name, 'Type:', obj.type);
+      }
+    });
+
+    // Set all mesh materials to black
+    monster.traverse((obj) => {
+      if (obj.isMesh) {
+        if (obj.material) {
+          obj.material.color.set(0x000000);
+          obj.material.emissive?.set(0x000000);
+          obj.material.opacity = 1;
+          obj.material.transparent = false;
+        }
+      }
+    });
 
     monster.userData.box = new THREE.Box3().setFromObject(monster);
 
-    setTimeout(() => {
-    placeMonsterOutsideWalls(monster);
-  }, 100); // allow time for wall boxes to update
+    // Initialize monster runtime state for slow behavior
+    monster.userData.baseSpeed = 70; // units per second used by pathfinder
+    monster.userData.speedMultiplier = 1;
+    monster.userData.slowed = false; // when true, monster moves slower while flashlight is on it
+    monster.userData.messageShown = false; // whether the flashlight message has been shown for current pointing
 
+    // Attach sound
+    attachMonsterSound(monster);
+
+    // (animation code removed) Only smoke aura will be used for the monster now.
+
+    // Add soft, cloud-like black smoke particle aura (covers full height)
+    const smokeCount = 64;
+    const smokeGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(smokeCount * 3);
+    const velocities = new Float32Array(smokeCount * 3);
+    for (let i = 0; i < smokeCount; i++) {
+      // Soft cloud distribution around monster, covering top-to-bottom
+      const theta = Math.random() * Math.PI * 2;
+      const radius = 0.6 + Math.random() * 1.2;
+      const y = (Math.random() * 3.8) - 0.6; // from -0.6 (below) to ~3.2 (well above)
+      const x = Math.cos(theta) * radius * (0.6 + Math.random() * 0.6);
+      const z = Math.sin(theta) * radius * (0.6 + Math.random() * 0.6);
+      positions[i * 3 + 0] = x;
+      positions[i * 3 + 1] = y;
+      positions[i * 3 + 2] = z;
+      velocities[i * 3 + 0] = (Math.random() - 0.5) * 0.01;
+      velocities[i * 3 + 1] = Math.random() * 0.004 + 0.001; // gentle upward bias
+      velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.01;
+    }
+    smokeGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    smokeGeometry.setAttribute('velocity', new THREE.BufferAttribute(velocities, 3));
+    const smokeMaterial = new THREE.PointsMaterial({
+      color: 0x000000,
+      size: 1.2,
+      opacity: 0.18,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+      map: (() => {
+        const size = 64;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createRadialGradient(size/2, size/2, 2, size/2, size/2, size/2);
+        grad.addColorStop(0, 'rgba(0,0,0,0.85)');
+        grad.addColorStop(0.4, 'rgba(0,0,0,0.35)');
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0,0,size,size);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        return tex;
+      })()
+    });
+    const smokePoints = new THREE.Points(smokeGeometry, smokeMaterial);
+    smokePoints.renderOrder = 999;
+    // Attach to monster so it follows its transform
+    monster.add(smokePoints);
+    monster.userData.smokePoints = smokePoints;
+    monster.userData.smokeGeometry = smokeGeometry;
+
+    setTimeout(() => {
+      placeMonsterOutsideWalls(monster);
+    }, 100);
   },
   undefined,
   (error) => {
@@ -672,6 +1309,9 @@ flashlight.target.position.set(0, 0, -1);
 camera.add(flashlight);
 camera.add(flashlight.target);
 scene.add(camera);
+// expose flashlight to helper modules and remember base intensity
+window.flashlight = flashlight;
+window.flashlight._baseIntensity = 1.5;
 let flashlightOn = true;
 let batteryCharge = 100;       // Battery charge percentage 0-100
 const batteryDrainRate = 0.5;    // % drained per second when on
@@ -728,17 +1368,58 @@ function cleanUpBatteries() {
 }
 
 window.addEventListener('keydown', (e) => {
-  if (e.key.toLowerCase() === 'g' && hoveredBattery && hoveredBattery.parent === scene & hoveredBattery.visible) {
-    removeBattery(hoveredBattery);
-    const index = batteryObjects.indexOf(hoveredBattery);
-    if (index !== -1) batteryObjects.splice(index, 1);
-    hoveredBattery = null;
+  if (pauseMenuActive) return;
+  if (e.key.toLowerCase() === 'g') {
+    // battery pickup
+    if (hoveredBattery && hoveredBattery.parent === scene & hoveredBattery.visible) {
+      removeBattery(hoveredBattery);
+      const index = batteryObjects.indexOf(hoveredBattery);
+      if (index !== -1) batteryObjects.splice(index, 1);
+      hoveredBattery = null;
+      pickupMessage.style.display = 'none';
+      batteryLevel = Math.min(batteryLevel + 0.2, MAX_BATTERY); // +20%
+      updateBatteryUI();
+      return;
+    }
 
-    pickupMessage.style.display = 'none';
+    // candy pickup
+    if (hoveredCandy) {
+      // ensure we remove the group that is tracked in candyObjects
+      const candyGroup = findAncestorInArray(hoveredCandy, candyObjects) || hoveredCandy;
+      // If both sprint and health are full, prevent pickup, make candy shake briefly, and show message
+      if (sprintStamina >= maxSprint && health >= MAX_HEALTH) {
+        try { showFlashlightMessage("I'm not hungry...", 3000); } catch (e) {}
+        try {
+          const now = performance.now();
+          if (candyGroup && candyGroup.userData) {
+            candyGroup.userData.shakeUntil = now + 1500; // shake for 1.5s
+          }
+        } catch (e) {}
+        return;
+      }
+      if (candyGroup && candyGroup.parent) scene.remove(candyGroup);
+      const cidx = candyObjects.indexOf(candyGroup);
+      if (cidx !== -1) candyObjects.splice(cidx, 1);
+      hoveredCandy = null;
+      pickupMessage.style.display = 'none';
 
-    // Recharge flashlight
-    batteryLevel = Math.min(batteryLevel + 0.2, MAX_BATTERY); // +20%
-    updateBatteryUI();
+      // increase health by 1 and update UI
+      const prevHealth = health;
+      health = Math.min(MAX_HEALTH, health + 1);
+      updateHealthUI();
+
+      // increase sprint bar a bit when picking up candy
+      const SPRINT_FROM_CANDY = 0.2; // 20%
+      sprintStamina = Math.min(maxSprint, sprintStamina + SPRINT_FROM_CANDY);
+      // ensure sprint can be used whenever there's stamina > 0
+      canSprint = sprintStamina > 0;
+
+      // if both sprint and health are full, show "I'm not hungry..."
+      if (sprintStamina >= maxSprint && health >= MAX_HEALTH) {
+        try { showFlashlightMessage("I'm not hungry...", 3000); } catch (e) {}
+      }
+      return;
+    }
   }
 });
 
@@ -886,6 +1567,8 @@ function generateChunk(cx, cz) {
     }
 
     spawnBatteryInChunk(cx, cz);
+  // occasionally spawn candy bars
+  spawnCandyInChunk(cx, cz);
 
     if (!tooClose && !isWallAt(noteX, noteZ)) {
       createNote(noteX, noteZ);
@@ -988,18 +1671,120 @@ function spawnBatteryInChunk(chunkX, chunkZ) {
   return batteryClone;
 }
 
-function updateBatteryHover() {
-  const validBatteries = batteryObjects.filter(b => b.parent === scene && b.visible);
-  raycaster.setFromCamera(mouse, camera);
-  const intersects = raycaster.intersectObjects(validBatteries, true);
+// Candy model and spawn
+function createCandyModel() {
+  // main wrapper group
+  const g = new THREE.Group();
 
-  if (intersects.length > 0) {
-    hoveredBattery = intersects[0].object;
-    pickupMessage.style.display = 'block';
-  } else {
-    hoveredBattery = null;
-    pickupMessage.style.display = 'none';
+  // main red bar body
+  const bodyGeo = new THREE.BoxGeometry(0.5, 0.12, 0.18);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcc0000, metalness: 0.1, roughness: 0.6 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 0.06;
+  g.add(body);
+
+  // spiky tear ends: three small cones per side to look like a wrapper tear
+  const spikeGeo = new THREE.ConeGeometry(0.04, 0.08, 6);
+  const spikeMat = new THREE.MeshStandardMaterial({ color: 0xcc0000 });
+  const spikeOffsetX = 0.28;
+  const spikeSpacing = 0.06;
+  for (const side of [-1, 1]) {
+    for (let i = -1; i <= 1; i++) {
+      const s = new THREE.Mesh(spikeGeo, spikeMat);
+      s.rotation.z = side === -1 ? Math.PI / 2 : -Math.PI / 2;
+      s.position.set(side * spikeOffsetX, 0.06, i * spikeSpacing);
+      g.add(s);
+    }
   }
+
+  // small label/candy wrapper stripe
+  const stripeGeo = new THREE.BoxGeometry(0.46, 0.04, 0.02);
+  const stripeMat = new THREE.MeshStandardMaterial({ color: 0xff6666 });
+  const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+  stripe.position.y = 0.08;
+  g.add(stripe);
+
+  return g;
+}
+
+function spawnCandyInChunk(chunkX, chunkZ) {
+  // spawn rarely: ~8% chance per chunk
+  if (Math.random() > 0.40) return null;
+
+  const cx = chunkX * CHUNK_SIZE;
+  const cz = chunkZ * CHUNK_SIZE;
+  const tries = 8;
+  const wallBoxes = getAllWallBoxes();
+  const chunkMeshes = Array.from(activeChunks.values()).flat();
+
+  for (let t = 0; t < tries; t++) {
+    const x = cx + (Math.random() - 0.5) * (CHUNK_SIZE - 4);
+    const z = cz + (Math.random() - 0.5) * (CHUNK_SIZE - 4);
+
+    // small test box for candy footprint
+    const testBox = new THREE.Box3(
+      new THREE.Vector3(x - 0.28, -0.1, z - 0.12),
+      new THREE.Vector3(x + 0.28, 1.0, z + 0.12)
+    );
+
+    if (isCollidingWithWalls(testBox, wallBoxes)) continue;
+
+    // downward raycast to find surface (floor) or ceiling if necessary
+    const rayOrigin = new THREE.Vector3(x, 2.5, z);
+    const rayDir = new THREE.Vector3(0, -1, 0);
+    const raycasterLocal = new THREE.Raycaster(rayOrigin, rayDir, 0, 3);
+    const intersects = raycasterLocal.intersectObjects(chunkMeshes.concat([floor]), true);
+    if (!intersects || intersects.length === 0) continue;
+
+    // place candy slightly above intersection point
+    const groundY = intersects[0].point.y;
+    const y = groundY + 0.02;
+
+    const candy = createCandyModel();
+    candy.position.set(x, y, z);
+    candy.userData = { chunkX, chunkZ };
+    // remember base position and seed for subtle ground shake when unpickable
+    candy.userData.basePosition = candy.position.clone();
+    candy.userData.shakeSeed = Math.random() * 1000;
+    candy.userData.shakeOffset = new THREE.Vector3(0,0,0);
+    scene.add(candy);
+    candyObjects.push(candy);
+    return candy;
+  }
+
+  return null;
+}
+
+function updateBatteryHover() {
+  raycaster.setFromCamera(mouse, camera);
+
+  // check batteries first
+  const validBatteries = batteryObjects.filter(b => b.parent === scene && b.visible);
+  let intersects = raycaster.intersectObjects(validBatteries, true);
+  if (intersects.length > 0) {
+    // find the battery group if a child mesh was hit
+    hoveredBattery = findAncestorInArray(intersects[0].object, batteryObjects) || intersects[0].object;
+    hoveredCandy = null;
+    pickupMessage.innerText = 'Press G to pick up battery';
+    pickupMessage.style.display = 'block';
+    return;
+  }
+
+  // check candy
+  const validCandy = candyObjects.filter(c => c.parent === scene && c.visible);
+  intersects = raycaster.intersectObjects(validCandy, true);
+  if (intersects.length > 0) {
+    // find the candy group if a child mesh was hit
+    hoveredCandy = findAncestorInArray(intersects[0].object, candyObjects) || intersects[0].object;
+    hoveredBattery = null;
+    pickupMessage.innerText = 'Press G to pick up';
+    pickupMessage.style.display = 'block';
+    return;
+  }
+
+  hoveredBattery = null;
+  hoveredCandy = null;
+  pickupMessage.style.display = 'none';
 }
 
 window.addEventListener('mousemove', (event) => {
@@ -1034,8 +1819,11 @@ const pitchLimit = Math.PI / 2 * 0.9;
 const moveFlags = { up: false, down: false, left: false, right: false };
 
 let keys = {};
+let pauseMenuActive = false; // when true, only allow up/down/enter/escape
+let pauseSelection = 0; // 0 = continue, 1 = restart
 
 window.addEventListener('keydown', e => {
+  if (pauseMenuActive) return; // block movement while pause menu active
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) e.preventDefault();
   keys[e.key.toLowerCase()] = true;
   if (e.code === 'KeyW') moveFlags.down = true;
@@ -1044,6 +1832,7 @@ window.addEventListener('keydown', e => {
   if (e.code === 'KeyD') moveFlags.left = true;
 });
 window.addEventListener('keyup', e => {
+  if (pauseMenuActive) return;
   keys[e.key.toLowerCase()] = false;
   if (e.code === 'KeyW') moveFlags.down = false;
   if (e.code === 'KeyS') moveFlags.up = false;
@@ -1204,28 +1993,43 @@ function findSafeStartPosition() {
   console.warn("Could not find a safe starting position after 100 attempts.");
 }
 
-const instructions = document.getElementById('instructions');
-
-instructions.addEventListener('click', () => {
-  renderer.domElement.requestPointerLock();
-});
+// old instructions element removed; game start is handled via pointer lock elsewhere
 
 document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement === renderer.domElement) {
-    instructions.style.display = 'none';
     document.addEventListener('mousemove', onMouseMove, false);
   } else {
-    instructions.style.display = '';
     document.removeEventListener('mousemove', onMouseMove, false);
+    // If pointer lock was lost (for example the user pressed Escape), open the pause menu
+    // unless we're already paused, loading, or in a game-over state.
+    try {
+      const loadingScreen = document.getElementById('loadingScreen');
+      if (!pauseMenuActive && !(loadingScreen && loadingScreen.style.display !== 'none') &&
+          !(typeof gameOver !== 'undefined' && gameOver) &&
+          !(typeof gameOverActive !== 'undefined' && gameOverActive) &&
+          !(typeof gameOverAnimating !== 'undefined' && gameOverAnimating)) {
+        showPauseMenu();
+      }
+    } catch (e) {
+      // ignore any errors during pointer lock handling
+    }
   }
 });
 
 document.addEventListener('mousedown', (e) => {
   if (e.button === 0) { // Left-click
+    // If the game hasn't begun yet (loading finished), use this first user gesture to lock pointer
+    const loadingScreen = document.getElementById('loadingScreen');
+    if (!gameStarted && (!loadingScreen || loadingScreen.style.display === 'none') && !pauseMenuActive && !controlsScreenVisible && !noteOpen) {
+      // allow pointer lock gesture but do not mark the game as started until
+      // the wake-up start sequence has completed
+      try { document.querySelector('canvas')?.requestPointerLock(); } catch (e) {}
+    }
+
     if (!gameOver) {
       flashlightOn = !flashlightOn;
       flashlight.visible = flashlightOn;
-  
+
       if (batteryLevel === 0) {
         flashlight.intensity = 0;
         flashlightOn = false;
@@ -1243,6 +2047,8 @@ document.addEventListener('mousedown', (e) => {
 });
 
 function onMouseMove(e) {
+  // ignore mouse movement while the wake-up start sequence plays
+  if (typeof startSequencePlaying !== 'undefined' && startSequencePlaying) return;
   yaw -= e.movementX * sensitivity;
   pitch -= e.movementY * sensitivity;
   pitch = Math.min(Math.max(pitch, -pitchLimit), pitchLimit);
@@ -1337,8 +2143,47 @@ function updateMonsterPathfinding() {
     const targetCell = monsterPath[monsterPathIndex];
     const targetPos = gridToWorld(targetCell.x, targetCell.z);
 
-    const monsterSpeed = 70;
+    const baseSpeed = (monster && monster.userData && monster.userData.baseSpeed) ? monster.userData.baseSpeed : 70;
+    const now = performance.now();
     const delta = clock.getDelta();
+
+    // flashlight detection: require flashlight actually ON and a direct beam hit
+    try {
+      // default: not pointing
+      let pointingAtMonster = false;
+      if (flashlightOn && window.flashlight && window.flashlight.intensity > 0.1) {
+        const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
+        // Raycast forward from camera to see if monster is directly hit by beam
+        raycaster.set(camera.position, camDir);
+        const intersects = monster ? raycaster.intersectObject(monster, true) : [];
+        if (intersects && intersects.length > 0) {
+          const hit = intersects[0];
+          // treat as hit only if monster is first intersect and within reasonable range
+          if (hit && hit.distance < 40) {
+            pointingAtMonster = true;
+          }
+        }
+      }
+
+      // set target darkness for environment when pointing at monster
+      envDarknessTarget = pointingAtMonster ? 1 : 0;
+
+      // set slowed flag while pointing at monster, and show message once
+      if (pointingAtMonster) {
+        monster.userData.slowed = true;
+        if (!monster.userData.messageShown) {
+          monster.userData.messageShown = true;
+        }
+      } else {
+        monster.userData.slowed = false;
+        monster.userData.messageShown = false;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    const isSlowed = monster.userData && !!monster.userData.slowed;
+    const monsterSpeed = baseSpeed * (isSlowed ? 0.25 : 1.0);
 
     const dir = new THREE.Vector3(
       targetPos.x - monster.position.x,
@@ -1361,21 +2206,93 @@ function updateMonsterPathfinding() {
   }
 }
 
+function attachMonsterSound(monster) {
+  // Ensure the listener is added to the camera
+  const listener = new THREE.AudioListener();
+  camera.add(listener);
+
+  // Create positional audio
+  const monsterSound = new THREE.PositionalAudio(listener);
+  const audioLoader = new THREE.AudioLoader();
+
+  audioLoader.load('monster_sounds.mp3', function(buffer) {
+    monsterSound.setBuffer(buffer);
+    monsterSound.setLoop(true);
+    monsterSound.setRefDistance(8); // How close before it's loud
+    monsterSound.setMaxDistance(50); // How far you can still hear it
+    monsterSound.setVolume(0.8);
+    monsterSound.play();
+  });
+
+  // Attach sound to the monster
+  monster.add(monsterSound);
+}
+
+let monsterWalkSound, lastMonsterPosition = new THREE.Vector3();
+
+function attachMonsterWalkSound(monster) {
+  const listener = new THREE.AudioListener();
+  camera.add(listener);
+
+  monsterWalkSound = new THREE.PositionalAudio(listener);
+
+  audioLoader.load('monster_walk.mp3', (buffer) => {
+    monsterWalkSound.setBuffer(buffer);
+    monsterWalkSound.setRefDistance(10);
+    monsterWalkSound.setLoop(true);
+    monsterWalkSound.setVolume(0.9);
+
+    monster.add(monsterWalkSound);
+  });
+
+  // Save initial position
+  lastMonsterPosition.copy(monster.position);
+}
+
+
 function animate() {
-  document.getElementById('gameOverScreen').style.display = 'none';
   requestAnimationFrame(animate);
 
   const now = performance.now();
-  const elapsed = now - loadingStartTime;
+  // Trigger the start (wake-up) sequence immediately once animate runs
+  if (!startSequenceTriggered) {
+    startSequenceTriggered = true;
+    startSequencePlaying = true;
+    startSeq.startTime = now;
+    startSeq.phase = 0;
+    // save original camera transform
+    _origCameraPos = camera.position.clone();
+    _origCameraQuat = camera.quaternion.clone();
+    // set camera to lying-down pose (low Y, looking up)
+    camera.position.set(_origCameraPos.x, 0.2, _origCameraPos.z);
+    camera.lookAt(new THREE.Vector3(_origCameraPos.x, 2.0, _origCameraPos.z));
+    // record lying transform for slerp/lerp during rise
+    _lyingCameraPos = camera.position.clone();
+    _lyingCameraQuat = camera.quaternion.clone();
+    // ensure overlay is visible (start dark)
+    const so = document.getElementById('startOverlay');
+    if (so) { so.style.opacity = '1'; so.style.display = 'block'; }
+    // reduce ambient and flashlight temporarily
+    if (window.ambientLight) window.ambientLight.intensity = 0.02;
+    if (window.flashlight) window.flashlight.intensity = 0;
+    // hide click-to-start overlay while sequence runs
+    try { const cs = document.getElementById('clickStart'); if (cs) { cs.style.opacity = '0'; cs.style.display = 'none'; } } catch(e) {}
+    // hide the canvas cursor during the sequence to simulate pointer lock
+    try { renderer.domElement.style.cursor = 'none'; } catch (e) {}
+    // if the user already clicked, try to request pointer lock (will only succeed if the click happened)
+    try {
+      if (userGestureReceived && document.pointerLockElement !== renderer.domElement) {
+        document.querySelector('canvas')?.requestPointerLock();
+      }
+    } catch (e) {}
+  }
 
-  if (elapsed < loadingDuration) {
-    const progress = Math.min(elapsed / loadingDuration, 1);
-    loadingBar.style.width = `${progress * 100}%`;
-    return; // Stop animation until loading done
-  } else if (loadingScreen.style.display !== 'none') {
-    loadingScreen.style.display = 'none';
-    wait(4000);
-    showIntroMessages();
+  // If the start sequence is playing, run its per-frame update and skip normal game logic
+  if (startSequencePlaying) {
+    const dt = clock.getDelta();
+    startSequenceUpdate(dt, now);
+    renderer.render(scene, camera);
+    return;
   }
 
 
@@ -1394,6 +2311,76 @@ function animate() {
   manageChunks();
 
   updateMonsterPathfinding();
+
+  // Candy shake when unpickable: iterate candies and apply subtle oscillation
+  try {
+    const nowMs = performance.now();
+    for (const candy of candyObjects) {
+      if (!candy || candy.parent !== scene) continue;
+      const base = candy.userData && candy.userData.basePosition ? candy.userData.basePosition : candy.position;
+      const seed = (candy.userData && candy.userData.shakeSeed) || 0;
+      const unpickable = (sprintStamina >= maxSprint && health >= MAX_HEALTH);
+      if (unpickable) {
+        // small bob + sway
+        const t = nowMs * 0.002 + seed;
+        const ay = Math.sin(t * 2.2) * 0.01 + 0.01; // tiny up/down
+        const ax = Math.sin(t * 3.7) * 0.02; // slight left/right
+        const az = Math.cos(t * 2.9) * 0.01;
+        candy.position.set(base.x + ax, base.y + ay, base.z + az);
+      } else {
+        // restore base position smoothly
+        candy.position.lerp(base, 0.18);
+      }
+    }
+  } catch (e) {}
+
+  // Smoothly lerp environment darkness (ambient + flashlight dimming)
+  envDarkness = THREE.MathUtils.clamp(THREE.MathUtils.lerp(envDarkness, envDarknessTarget, envFadeSpeed), 0, 1);
+  if (window.ambientLight) {
+    // map envDarkness 0..1 to ambient intensity (min 0.025 .. normal ~0.45)
+    window.ambientLight.intensity = THREE.MathUtils.lerp(window.ambientLight.intensity || 0.25, Math.max(0.025, 0.45 * (1 - envDarkness)), 0.06);
+  }
+  if (window.flashlight) {
+    // dim flashlight slightly when environment darkens (but keep beam visible)
+    const base = window.flashlight._baseIntensity || 1.5;
+    window.flashlight.intensity = THREE.MathUtils.lerp(window.flashlight.intensity || base, base * (1 - envDarkness * 0.5), 0.06);
+  }
+
+  // Update monster smoke aura (soft cloud-like)
+  if (monster && monster.userData.smokePoints) {
+    const smokeGeometry = monster.userData.smokeGeometry;
+    const positions = smokeGeometry.getAttribute('position');
+    const velocities = smokeGeometry.getAttribute('velocity');
+    for (let i = 0; i < positions.count; i++) {
+      // gentle turbulence + upward drift
+      positions.array[i * 3 + 0] += velocities.array[i * 3 + 0] + (Math.random() - 0.5) * 0.0015;
+      positions.array[i * 3 + 1] += velocities.array[i * 3 + 1] + (Math.random() - 0.5) * 0.0025;
+      positions.array[i * 3 + 2] += velocities.array[i * 3 + 2] + (Math.random() - 0.5) * 0.0015;
+      // slight damping
+      velocities.array[i * 3 + 0] *= 0.993;
+      velocities.array[i * 3 + 1] = Math.min(velocities.array[i * 3 + 1] * 0.993 + 0.0002, 0.02);
+      velocities.array[i * 3 + 2] *= 0.993;
+      const px = positions.array[i * 3 + 0];
+      const py = positions.array[i * 3 + 1];
+      const pz = positions.array[i * 3 + 2];
+      const r = Math.sqrt(px * px + pz * pz);
+      // keep within a soft capsule around the monster
+      const maxR = 1.8 + (py + 0.6) * 0.35; // allow bigger spread higher up
+      if (r > maxR) {
+        positions.array[i * 3 + 0] *= 0.98;
+        positions.array[i * 3 + 2] *= 0.98;
+      }
+      // respawn particles that drift too high
+      if (py > 3.6) {
+        // drop it back down into the cloud volume so the top remains filled
+        positions.array[i * 3 + 1] = (Math.random() * 3.8) - 0.6;
+        positions.array[i * 3 + 0] = (Math.random() - 0.5) * 1.4;
+        positions.array[i * 3 + 2] = (Math.random() - 0.5) * 1.4;
+        velocities.array[i * 3 + 1] = Math.random() * 0.005 + 0.001;
+      }
+    }
+    positions.needsUpdate = true;
+  }
 
   checkNoteHover();
 
@@ -1475,11 +2462,17 @@ if (Date.now() >= nextRareSoundTime) {
   showImInsaneMessages();
 }
 
+  if (monster) {
+    // No per-part animation: keep monster static except for smoke aura which follows the model.
+    // Ensure lastMonsterPosition stays in sync for any other logic.
+    lastMonsterPosition.copy(monster.position);
+  }
+
 const isMoving = move.lengthSq() > 0;
 const shiftDown = keys['shift'];
 
 // Sprint logic
-if (isMoving && shiftDown && canSprint && sprintStamina > 0) {
+  if (isMoving && shiftDown && sprintStamina > 0) {
   isSprinting = true;
   speed = runSpeed;
   sprintStamina -= sprintDepleteRate * dt;
@@ -1487,8 +2480,8 @@ if (isMoving && shiftDown && canSprint && sprintStamina > 0) {
   fadeInUI('sprintBar');
   if (sprintStamina <= 0) {
     sprintStamina = 0;
-    canSprint = false;
-    showFlashlightMessage("I can't run anymore, I'm exhausted. I should really exercise more...");
+      // no longer disable sprint permanently; just stop sprinting until regen
+      showFlashlightMessage("I can't run anymore, I'm exhausted. I should really exercise more...");
   }
 } else {
   fadeOutUI('sprintUI');
@@ -1496,10 +2489,9 @@ if (isMoving && shiftDown && canSprint && sprintStamina > 0) {
   isSprinting = false;
   speed = walkSpeed; // normal speed
   sprintStamina += sprintRegenRate * dt;
-  if (sprintStamina >= maxSprint) {
-    sprintStamina = maxSprint;
-    canSprint = true;
-  }
+    // clamp and allow sprint as soon as there's any stamina
+    if (sprintStamina >= maxSprint) sprintStamina = maxSprint;
+    canSprint = sprintStamina > 0;
 
   // Hide bar if full and not sprinting
   if (sprintStamina >= maxSprint && !shiftDown) {
@@ -1553,9 +2545,12 @@ const idleSway = Math.sin(time) * 0.01;
 const finalBob = THREE.MathUtils.lerp(idleBob, bobOffset, walkBlend);
 const finalSway = THREE.MathUtils.lerp(idleSway, swayOffset, walkBlend);
 
-// Apply to camera
-camera.position.y = 1.6 + finalBob;
-camera.rotation.z = finalSway * 0.3;
+  // Apply to camera (skip bob/sway if we're playing the death animation
+  // or after the death fall has finished and the camera should remain locked)
+  if (!gameOverAnimating && !gameOverCameraLocked) {
+    camera.position.y = 1.6 + finalBob;
+    camera.rotation.z = finalSway * 0.3;
+  }
 
 function updateFlashlightBattery(dt) {
   if (flashlightOn && batteryLevel > 0) {
@@ -1654,7 +2649,36 @@ if (isSprinting) {
 
   camera.rotation.order = 'YXZ';
   camera.rotation.y = yaw;
-  camera.rotation.x = pitch;
+  if (!gameOverAnimating && !gameOverCameraLocked) {
+    camera.rotation.x = pitch;
+  } else if (gameOverAnimating && _gameOverInitial) {
+    // death animation: interpolate camera pitch/roll and drop height
+    const nowAnim = performance.now();
+    const t = Math.min(1, (nowAnim - gameOverAnimStart) / gameOverAnimDuration);
+    const ease = 1 - Math.pow(1 - t, 3); // easeOutCubic
+
+    // target: pitch falling forward (~PI/1.9) and a small roll
+    const targetPitch = Math.PI * 0.5; // lay flat forward
+    const targetRoll = 0.6; // slight sideways tilt
+    const startPitch = _gameOverInitial.pitch;
+    const startRoll = _gameOverInitial.roll;
+    const startY = _gameOverInitial.y;
+    const targetY = startY - 0.6;
+
+    // interpolate
+    camera.rotation.x = THREE.MathUtils.lerp(startPitch, targetPitch, ease);
+    camera.rotation.z = THREE.MathUtils.lerp(startRoll, targetRoll, ease);
+    camera.position.y = THREE.MathUtils.lerp(startY, targetY, ease);
+
+    // When camera fall finishes, start fade-in of game over screen
+    if (t >= 1) {
+      gameOverAnimating = false;
+      // lock camera at final fall transform so other code doesn't reset it
+      gameOverCameraLocked = true;
+      // Start the death -> game over sequence: fade to black, then show game over text
+      startDeathFade();
+    }
+  }
 
   const pos = camera.position;
   document.getElementById('positionDisplay').textContent = 
@@ -1666,6 +2690,8 @@ if (isSprinting) {
   
   renderer.render(overlayScene, overlayCamera);
   renderer.render(scene, camera);
+
+  // game-over visuals are handled by startDeathFade() sequence
 }
 
 function createStartRoom() {
